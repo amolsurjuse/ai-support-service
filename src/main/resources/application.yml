@@ -1,0 +1,22 @@
+server:
+  port: ${SERVER_PORT:8094}
+
+spring:
+  application:
+    name: ai-support-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+electrahub:
+  ai-support:
+    provider-enabled: ${AI_PROVIDER_ENABLED:false}
+    support-email: ${SUPPORT_EMAIL:support@electrahub.com}
+    stream-token-delay-ms: ${AI_STREAM_TOKEN_DELAY_MS:18}

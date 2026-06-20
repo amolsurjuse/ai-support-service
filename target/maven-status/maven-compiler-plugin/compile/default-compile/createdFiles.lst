@@ -1,0 +1,17 @@
+com\electrahub\aisupport\model\ChatDtos$SendMessageRequest.class
+com\electrahub\aisupport\model\ChatDtos.class
+com\electrahub\aisupport\web\ChatStreamController.class
+com\electrahub\aisupport\model\ChatDtos$SendMessageResponse.class
+com\electrahub\aisupport\model\ChatDtos$ContextPayload.class
+com\electrahub\aisupport\service\ChatThreadStore$PendingMessage.class
+com\electrahub\aisupport\web\ChatController.class
+com\electrahub\aisupport\web\GlobalExceptionHandler.class
+com\electrahub\aisupport\model\ChatDtos$StreamEvent.class
+com\electrahub\aisupport\service\SupportPrompt.class
+com\electrahub\aisupport\config\AiSupportProperties.class
+com\electrahub\aisupport\service\DiagnosticAnswerService$DiagnosticAnswer.class
+com\electrahub\aisupport\service\PiiRedactor.class
+com\electrahub\aisupport\config\AiSupportConfig.class
+com\electrahub\aisupport\service\ChatThreadStore.class
+com\electrahub\aisupport\AiSupportServiceApplication.class
+com\electrahub\aisupport\service\DiagnosticAnswerService.class
