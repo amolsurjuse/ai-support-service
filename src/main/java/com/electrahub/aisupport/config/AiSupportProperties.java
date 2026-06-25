@@ -6,6 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AiSupportProperties(
         boolean providerEnabled,
         String supportEmail,
-        long streamTokenDelayMs
+        long streamTokenDelayMs,
+        String sessionServiceUrl,
+        String paymentServiceUrl,
+        String chargerServiceUrl,
+        String ocppServiceUrl,
+        int diagnosticsTimeoutMs
 ) {
 }

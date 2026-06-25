@@ -20,3 +20,8 @@ electrahub:
     provider-enabled: ${AI_PROVIDER_ENABLED:false}
     support-email: ${SUPPORT_EMAIL:support@electrahub.com}
     stream-token-delay-ms: ${AI_STREAM_TOKEN_DELAY_MS:18}
+    session-service-url: ${SESSION_SERVICE_URL:http://session-service:8083}
+    payment-service-url: ${PAYMENT_SERVICE_URL:http://payment-service:8083}
+    charger-service-url: ${CHARGER_SERVICE_URL:http://charger-management-service:8086}
+    ocpp-service-url: ${OCPP_SERVICE_URL:http://ocpp-service:8082}
+    diagnostics-timeout-ms: ${AI_DIAGNOSTICS_TIMEOUT_MS:1800}

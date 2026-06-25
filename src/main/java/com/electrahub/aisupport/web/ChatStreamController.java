@@ -10,6 +10,8 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,13 +35,16 @@ class ChatStreamController {
     }
 
     @GetMapping(path = "/threads/{threadId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    SseEmitter stream(@PathVariable UUID threadId, @RequestParam(name = "since") UUID messageId) {
+    SseEmitter stream(@PathVariable UUID threadId,
+                      @RequestParam(name = "since") UUID messageId,
+                      HttpServletRequest request) {
         SseEmitter emitter = new SseEmitter(60_000L);
-        executor.submit(() -> streamAnswer(threadId, messageId, emitter));
+        String authorization = request.getHeader("Authorization");
+        executor.submit(() -> streamAnswer(threadId, messageId, authorization, emitter));
         return emitter;
     }
 
-    private void streamAnswer(UUID threadId, UUID messageId, SseEmitter emitter) {
+    private void streamAnswer(UUID threadId, UUID messageId, String authorization, SseEmitter emitter) {
         try {
             var pending = threadStore.find(messageId)
                     .filter(message -> message.threadId().equals(threadId))
@@ -50,7 +55,7 @@ class ChatStreamController {
                 return;
             }
 
-            var answer = answerService.answer(pending.content(), pending.context());
+            var answer = answerService.answer(pending.content(), pending.context(), authorization);
             send(emitter, "tool_call", StreamEvent.toolCall(messageId, answer.toolName()));
             send(emitter, "tool_result", StreamEvent.toolResult(messageId, answer.toolName(), true, 1));
 
