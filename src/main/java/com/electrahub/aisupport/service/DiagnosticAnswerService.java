@@ -3,10 +3,13 @@ package com.electrahub.aisupport.service;
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class DiagnosticAnswerService {
+    private static final Logger log = LoggerFactory.getLogger(DiagnosticAnswerService.class);
     private final AiSupportProperties properties;
     private final PiiRedactor redactor;
     private final BackendDiagnosticsClient diagnosticsClient;
@@ -48,6 +51,8 @@ public class DiagnosticAnswerService {
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
                                                  DiagnosticAnswer fallback) {
         if (!llmClient.available()) {
+            log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
+                    fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
             return fallback;
         }
         LlmClient.LlmCompletion completion = llmClient.complete(new LlmClient.LlmPrompt(
@@ -57,8 +62,12 @@ public class DiagnosticAnswerService {
                 diagnostics
         ));
         if (!completion.ok() || completion.answer().isBlank()) {
+            log.warn("Sparky using deterministic fallback reason=llm_completion_failed provider={} model={} tool={} error={}",
+                    completion.provider(), completion.model(), fallback.toolName(), completion.error());
             return fallback;
         }
+        log.info("Sparky using LLM answer provider={} model={} tool={} answerChars={}",
+                completion.provider(), completion.model(), fallback.toolName(), completion.answer().length());
         return new DiagnosticAnswer(fallback.toolName(), completion.answer(), fallback.contextSummary());
     }
 

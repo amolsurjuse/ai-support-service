@@ -43,8 +43,15 @@ class OpenAiLlmClient implements LlmClient {
     @Override
     public LlmCompletion complete(LlmPrompt prompt) {
         if (!available()) {
+            log.info("OpenAI provider unavailable providerEnabled={} provider={} hasApiKey={}",
+                    properties.providerEnabled(), properties.provider(), !isBlank(properties.openaiApiKey()));
             return LlmCompletion.disabled();
         }
+
+        String body = requestBody(prompt);
+        long startedNanos = System.nanoTime();
+        log.info("OpenAI response request starting provider=openai model={} baseUrl={} promptChars={} requestBytes={} maxOutputTokens={} temperature={}",
+                properties.model(), sanitizeBaseUrl(properties.openaiBaseUrl()), promptSize(prompt), body.length(), properties.maxOutputTokens(), properties.temperature());
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -53,25 +60,42 @@ class OpenAiLlmClient implements LlmClient {
                     .header("Authorization", "Bearer " + properties.openaiApiKey())
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody(prompt)))
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            long latencyMs = elapsedMs(startedNanos);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("OpenAI response request failed with status {}", response.statusCode());
+                log.warn("OpenAI response request failed status={} latencyMs={} retryAfter={} rateLimitRequests={} rateLimitTokens={} resetRequests={} resetTokens={} errorCode={} errorType={} bodyChars={}",
+                        response.statusCode(),
+                        latencyMs,
+                        header(response, "retry-after"),
+                        header(response, "x-ratelimit-remaining-requests"),
+                        header(response, "x-ratelimit-remaining-tokens"),
+                        header(response, "x-ratelimit-reset-requests"),
+                        header(response, "x-ratelimit-reset-tokens"),
+                        errorField(response.body(), "code"),
+                        errorField(response.body(), "type"),
+                        response.body() == null ? 0 : response.body().length());
                 return LlmCompletion.failure("openai", properties.model(), "OpenAI returned status " + response.statusCode());
             }
 
             String answer = extractOutputText(objectMapper.readTree(response.body()));
             if (isBlank(answer)) {
+                log.warn("OpenAI response request completed without output text status={} latencyMs={} bodyChars={}",
+                        response.statusCode(), elapsedMs(startedNanos), response.body() == null ? 0 : response.body().length());
                 return LlmCompletion.failure("openai", properties.model(), "OpenAI response did not include output text");
             }
+            log.info("OpenAI response request succeeded status={} latencyMs={} answerChars={} outputItems={}",
+                    response.statusCode(), elapsedMs(startedNanos), answer.length(), responseBodyOutputCount(response.body()));
             return LlmCompletion.success(answer, "openai", properties.model());
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            log.warn("OpenAI response request interrupted latencyMs={}", elapsedMs(startedNanos));
             return LlmCompletion.failure("openai", properties.model(), "OpenAI request interrupted");
         } catch (IOException | RuntimeException ex) {
-            log.warn("OpenAI response request failed: {}", ex.getMessage());
+            log.warn("OpenAI response request exception latencyMs={} exception={} message={}",
+                    elapsedMs(startedNanos), ex.getClass().getSimpleName(), ex.getMessage());
             return LlmCompletion.failure("openai", properties.model(), ex.getMessage());
         }
     }
@@ -139,6 +163,49 @@ class OpenAiLlmClient implements LlmClient {
             }
         }
         return builder.toString().trim();
+    }
+
+    private int promptSize(LlmPrompt prompt) {
+        return promptText(prompt).length() + SupportPrompt.SYSTEM_PROMPT.length() + SupportPrompt.RESPONSE_CONTRACT.length();
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return Duration.ofNanos(System.nanoTime() - startedNanos).toMillis();
+    }
+
+    private static String header(HttpResponse<?> response, String name) {
+        return response.headers().firstValue(name).orElse("-");
+    }
+
+    private String errorField(String body, String fieldName) {
+        if (isBlank(body)) {
+            return "-";
+        }
+        try {
+            JsonNode error = objectMapper.readTree(body).path("error");
+            String value = error.path(fieldName).asText("");
+            return isBlank(value) ? "-" : value;
+        } catch (RuntimeException ex) {
+            return "unparseable";
+        }
+    }
+
+    private int responseBodyOutputCount(String body) {
+        if (isBlank(body)) {
+            return 0;
+        }
+        try {
+            return objectMapper.readTree(body).path("output").size();
+        } catch (RuntimeException ex) {
+            return 0;
+        }
+    }
+
+    private static String sanitizeBaseUrl(String value) {
+        if (isBlank(value)) {
+            return "https://api.openai.com";
+        }
+        return value.replaceAll("(?i)(api[_-]?key|token|secret)=([^&]+)", "$1=REDACTED");
     }
 
     private Duration timeout() {
