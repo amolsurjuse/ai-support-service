@@ -10,11 +10,16 @@ public class DiagnosticAnswerService {
     private final AiSupportProperties properties;
     private final PiiRedactor redactor;
     private final BackendDiagnosticsClient diagnosticsClient;
+    private final LlmClient llmClient;
 
-    DiagnosticAnswerService(AiSupportProperties properties, PiiRedactor redactor, BackendDiagnosticsClient diagnosticsClient) {
+    DiagnosticAnswerService(AiSupportProperties properties,
+                            PiiRedactor redactor,
+                            BackendDiagnosticsClient diagnosticsClient,
+                            LlmClient llmClient) {
         this.properties = properties;
         this.redactor = redactor;
         this.diagnosticsClient = diagnosticsClient;
+        this.llmClient = llmClient;
     }
 
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
@@ -22,20 +27,39 @@ public class DiagnosticAnswerService {
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
         BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = diagnosticsClient.collect(safeContext, authorization);
 
+        DiagnosticAnswer fallback;
         if (message.contains("503") || message.contains("unavailable") || message.contains("temporarily")) {
-            return chargingUnavailable(safeContext, diagnostics);
-        }
-        if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
-            return alreadyActive(safeContext, diagnostics);
-        }
-        if (message.contains("stuck") || message.contains("preparing")) {
-            return stuckPreparing(safeContext, diagnostics);
-        }
-        if (message.contains("online") || message.contains("offline") || message.contains("heartbeat")) {
-            return heartbeat(safeContext, diagnostics);
+            fallback = chargingUnavailable(safeContext, diagnostics);
+        } else if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
+            fallback = alreadyActive(safeContext, diagnostics);
+        } else if (message.contains("stuck") || message.contains("preparing")) {
+            fallback = stuckPreparing(safeContext, diagnostics);
+        } else if (message.contains("online") || message.contains("offline") || message.contains("heartbeat")) {
+            fallback = heartbeat(safeContext, diagnostics);
+        } else {
+            fallback = generalChargingHelp(safeContext, diagnostics);
         }
 
-        return generalChargingHelp(safeContext, diagnostics);
+        return llmAnswerOrFallback(userMessage, safeContext, diagnostics, fallback);
+    }
+
+    private DiagnosticAnswer llmAnswerOrFallback(String userMessage,
+                                                 ContextPayload context,
+                                                 BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
+                                                 DiagnosticAnswer fallback) {
+        if (!llmClient.available()) {
+            return fallback;
+        }
+        LlmClient.LlmCompletion completion = llmClient.complete(new LlmClient.LlmPrompt(
+                redactor.redact(userMessage),
+                context,
+                fallback,
+                diagnostics
+        ));
+        if (!completion.ok() || completion.answer().isBlank()) {
+            return fallback;
+        }
+        return new DiagnosticAnswer(fallback.toolName(), completion.answer(), fallback.contextSummary());
     }
 
     public String renderForClient(DiagnosticAnswer answer) {

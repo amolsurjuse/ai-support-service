@@ -28,6 +28,18 @@ final class SupportPrompt {
             connector already has an active/preparing/finishing session.
             """;
 
+    static final String RESPONSE_CONTRACT = """
+            Response contract:
+            - Answer in the same language as the user when clear; otherwise use concise English.
+            - Start with the direct diagnosis or answer, not a greeting.
+            - Use short bullets only when they make the next action clearer.
+            - Do not mention that you are using an LLM.
+            - Do not invent live charger, session, wallet, user, cost, or heartbeat facts.
+            - If live backend checks are missing or unreachable, say which check was unavailable and give a safe next step.
+            - Driver audience: simple explanation and action.
+            - Admin or CSR audience: include likely owning service and operational next check when useful.
+            """;
+
     private SupportPrompt() {
     }
 }
