@@ -59,10 +59,7 @@ class ChatStreamController {
             send(emitter, "tool_call", StreamEvent.toolCall(messageId, answer.toolName()));
             send(emitter, "tool_result", StreamEvent.toolResult(messageId, answer.toolName(), true, 1));
 
-            if (!answer.contextSummary().isBlank()) {
-                streamText(messageId, "I checked " + answer.contextSummary() + ".\n\n", emitter);
-            }
-            streamText(messageId, answer.text(), emitter);
+            streamText(messageId, answerService.renderForClient(answer), emitter);
             send(emitter, "done", StreamEvent.done(messageId));
             emitter.complete();
         } catch (Exception ex) {

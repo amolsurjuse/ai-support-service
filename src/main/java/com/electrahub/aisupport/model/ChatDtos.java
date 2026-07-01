@@ -33,7 +33,13 @@ public final class ChatDtos {
         }
     }
 
-    public record SendMessageResponse(UUID threadId, UUID messageId) {
+    public record SendMessageResponse(
+            UUID threadId,
+            UUID messageId,
+            String answer,
+            String tool,
+            String contextSummary
+    ) {
     }
 
     public record StreamEvent(

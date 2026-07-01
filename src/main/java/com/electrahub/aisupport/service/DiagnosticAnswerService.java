@@ -38,6 +38,16 @@ public class DiagnosticAnswerService {
         return generalChargingHelp(safeContext, diagnostics);
     }
 
+    public String renderForClient(DiagnosticAnswer answer) {
+        if (answer == null) {
+            return "";
+        }
+        if (answer.contextSummary() == null || answer.contextSummary().isBlank()) {
+            return answer.text();
+        }
+        return "I checked " + answer.contextSummary() + ".\n\n" + answer.text();
+    }
+
     private DiagnosticAnswer chargingUnavailable(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
         return new DiagnosticAnswer(
                 "diagnose_charging_start",
