@@ -47,10 +47,11 @@ class OllamaLlmClient implements LlmClient {
             return LlmCompletion.disabled();
         }
 
-        String body = requestBody(prompt);
+        String promptText = compactPromptText(prompt);
+        String body = requestBody(promptText);
         long startedNanos = System.nanoTime();
         log.info("Ollama chat request starting model={} baseUrl={} promptChars={} requestBytes={} maxOutputTokens={} temperature={}",
-                properties.model(), sanitizeBaseUrl(properties.ollamaBaseUrl()), LlmPromptFormatter.promptSize(prompt), body.length(), properties.maxOutputTokens(), properties.temperature());
+                properties.model(), sanitizeBaseUrl(properties.ollamaBaseUrl()), promptText.length(), body.length(), maxOutputTokens(), properties.temperature());
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -88,21 +89,66 @@ class OllamaLlmClient implements LlmClient {
         }
     }
 
-    private String requestBody(LlmPrompt prompt) {
+    private String requestBody(String promptText) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", properties.model());
         root.put("stream", false);
+        root.put("keep_alive", "30m");
 
         ObjectNode options = objectMapper.createObjectNode();
         options.put("temperature", properties.temperature());
-        options.put("num_predict", properties.maxOutputTokens());
+        options.put("num_predict", maxOutputTokens());
         root.set("options", options);
 
         ArrayNode messages = objectMapper.createArrayNode();
-        messages.add(message("system", SupportPrompt.SYSTEM_PROMPT + "\n\n" + SupportPrompt.RESPONSE_CONTRACT));
-        messages.add(message("user", LlmPromptFormatter.promptText(prompt)));
+        messages.add(message("system", "You are Sparky, ElectraHub's concise EV charging support assistant. Use only the supplied backend facts. Do not reveal secrets, stack traces, SQL, passwords, or full card data. If a fact is missing, say it is unavailable."));
+        messages.add(message("user", promptText));
         root.set("messages", messages);
         return root.toString();
+    }
+
+    private String compactPromptText(LlmPrompt prompt) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("User: ").append(truncate(nullToBlank(prompt.userMessage()), 400)).append("\n");
+
+        if (prompt.context() != null) {
+            appendInline(builder, "audience", prompt.context().audience());
+            appendInline(builder, "screen", prompt.context().screen());
+            appendInline(builder, "resource", prompt.context().resourceType());
+            appendInline(builder, "charger", prompt.context().chargerId());
+            appendInline(builder, "connector", prompt.context().connectorId());
+            appendInline(builder, "location", prompt.context().locationId());
+            appendInline(builder, "session", prompt.context().sessionId());
+            builder.append('\n');
+        }
+
+        builder.append("Backend facts:\n")
+                .append(truncate(prompt.diagnostics() == null
+                        ? "No backend diagnostics were available."
+                        : prompt.diagnostics().toAnswerText(), 1_400))
+                .append("\n\nAnswer in 4 bullets or fewer. Be practical and mention the next action.");
+        return builder.toString();
+    }
+
+    private int maxOutputTokens() {
+        return Math.max(32, Math.min(properties.maxOutputTokens(), 120));
+    }
+
+    private static void appendInline(StringBuilder builder, String label, String value) {
+        if (!isBlank(value)) {
+            builder.append(label).append('=').append(truncate(value, 120)).append(' ');
+        }
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
+    private static String nullToBlank(String value) {
+        return value == null ? "" : value;
     }
 
     private ObjectNode message(String role, String content) {
