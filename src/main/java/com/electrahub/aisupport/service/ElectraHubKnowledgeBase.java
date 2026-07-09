@@ -30,6 +30,10 @@ final class ElectraHubKnowledgeBase {
                     "Idle fee comes from price plan/tariff data and should be consistent across charger details, active charging, idle screen, receipt, and admin views. Receipts should separate energy cost, idle fee, taxes, subscription discount, and total.",
                     "price", "pricing", "tariff", "idle fee", "receipt", "subscription", "discount", "tax"),
             new KnowledgeRule(
+                    "admin revenue dashboard",
+                    "Admin dashboard total revenue should be based on completed charging sessions for the selected date filter and should align with receipts. Revenue comparisons should use the previous equivalent date window and the same completed-session timestamp and billable amount fields.",
+                    "dashboard", "total revenue", "revenue", "sales", "income", "percentage", "filter"),
+            new KnowledgeRule(
                     "wallet threshold and auto top-up",
                     "During charging, backend should stop when post-subscription cost plus taxes and fees would breach the low-balance/session cap. If auto top-up is enabled and a valid card exists, wallet top-up should happen before low-balance stop.",
                     "wallet", "balance", "low balance", "auto top", "auto top-up", "session cap", "payment"),

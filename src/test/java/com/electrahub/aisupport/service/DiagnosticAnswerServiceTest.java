@@ -79,6 +79,23 @@ class DiagnosticAnswerServiceTest {
         assertThat(answer).doesNotContain("admin should see");
     }
 
+    @Test
+    void explainsTotalRevenueDashboardMetric() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "dashboard", "dashboard", null, null, null, null, null, "admin");
+
+        String answer = service.renderForClient(service.answer(
+                "Total revenue",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("completed charging revenue");
+        assertThat(answer).contains("selected dashboard date filter");
+        assertThat(answer).contains("completed charging sessions and receipts");
+        assertThat(answer).doesNotContain("start fails");
+    }
+
     private DiagnosticAnswerService service() {
         BackendDiagnosticsClient diagnosticsClient = mock(BackendDiagnosticsClient.class);
         when(diagnosticsClient.collect(any(), anyString())).thenReturn(

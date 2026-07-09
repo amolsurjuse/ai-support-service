@@ -31,7 +31,9 @@ public class DiagnosticAnswerService {
         BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = diagnosticsClient.collect(safeContext, authorization);
 
         DiagnosticAnswer fallback;
-        if (containsAny(message, "remote stop", "stop charging") && containsAny(message, "idle fee", "receipt", "unplug")) {
+        if (isRevenueDashboardQuestion(message, safeContext)) {
+            fallback = totalRevenueMetric(safeContext);
+        } else if (containsAny(message, "remote stop", "stop charging") && containsAny(message, "idle fee", "receipt", "unplug")) {
             fallback = remoteStopIdleFee(safeContext, diagnostics);
         } else if (message.contains("simulator") && containsAny(message, "security code", "unplug", "mobile app", "link")) {
             fallback = simulatorSecureUnplug(safeContext, diagnostics);
@@ -194,6 +196,20 @@ public class DiagnosticAnswerService {
         );
     }
 
+    private DiagnosticAnswer totalRevenueMetric(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_admin_total_revenue",
+                """
+                        Total revenue on the admin dashboard should represent completed charging revenue for the selected dashboard date filter.
+
+                        Admin should verify the same filter against completed charging sessions and receipts. The total should include billable charging amounts such as energy, idle fees, session fees, and taxes after applicable subscription discounts, and it should not count active or failed sessions.
+
+                        If the percentage change looks wrong, compare the current filter window with the previous equivalent window and check whether the dashboard API is using the same completed-session timestamp and revenue fields as the receipts.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
     private DiagnosticAnswer alreadyActive(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
         return new DiagnosticAnswer(
                 "diagnose_active_connector",
@@ -289,6 +305,13 @@ public class DiagnosticAnswerService {
                 && containsAny(message, "payment", "transaction id", "admin", "receipt", "charge", "session");
     }
 
+    private static boolean isRevenueDashboardQuestion(String message, ContextPayload context) {
+        String screen = context == null || context.screen() == null ? "" : context.screen().toLowerCase();
+        String resourceType = context == null || context.resourceType() == null ? "" : context.resourceType().toLowerCase();
+        return containsAny(message, "total revenue", "revenue", "sales", "income")
+                && (message.length() <= 80 || screen.contains("dashboard") || resourceType.contains("dashboard"));
+    }
+
     private static boolean looksLikePromptLeak(String answer) {
         String normalized = answer == null ? "" : answer.toLowerCase();
         return normalized.contains("if the user asks")
@@ -317,7 +340,8 @@ public class DiagnosticAnswerService {
     private static boolean requiresExactProjectAnswer(String toolName) {
         return "diagnose_idle_remote_stop".equals(toolName)
                 || "diagnose_simulator_secure_unplug".equals(toolName)
-                || "explain_card_present_admin_payment".equals(toolName);
+                || "explain_card_present_admin_payment".equals(toolName)
+                || "explain_admin_total_revenue".equals(toolName);
     }
 
     public record DiagnosticAnswer(String toolName, String text, String contextSummary) {
