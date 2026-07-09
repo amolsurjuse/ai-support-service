@@ -15,6 +15,7 @@ public record AiSupportProperties(
         int diagnosticsTimeoutMs,
         String openaiApiKey,
         String openaiBaseUrl,
+        String ollamaBaseUrl,
         String model,
         double temperature,
         int maxOutputTokens,

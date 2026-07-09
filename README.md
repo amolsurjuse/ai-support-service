@@ -64,4 +64,28 @@ AI_LLM_TIMEOUT_MS=12000
 
 The service sends only the redacted user message, screen/context identifiers, deterministic fallback answer, and summarized live backend facts to the LLM. It never sends bearer tokens or raw secrets to the provider. If OpenAI is disabled, unreachable, or returns no usable text, Sparky returns the deterministic diagnostic answer.
 
+## Ollama provider mode
+
+Sparky can also run against a local or cluster-hosted Ollama model. Ollama customization is handled with `ollama/Modelfile`, which creates an ElectraHub domain-tuned runtime model from a base model and system instructions.
+
+Create the local model:
+
+```powershell
+.\scripts\ollama\create-electrahub-sparky.ps1
+```
+
+Run the service against Ollama:
+
+```text
+AI_PROVIDER_ENABLED=true
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+AI_MODEL=electrahub-sparky
+AI_TEMPERATURE=0.2
+AI_MAX_OUTPUT_TOKENS=900
+AI_LLM_TIMEOUT_MS=12000
+```
+
+For Kubernetes, deploy an Ollama service reachable from `ai-support-service`, then set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL=http://ollama:11434`, and `AI_MODEL=electrahub-sparky`. The deterministic diagnostics remain the fallback if Ollama is unreachable or returns no usable answer.
+
 `POST /api/v1/chat/messages` returns a normalized final answer for all clients. `GET /api/v1/chat/threads/{threadId}/stream?since={messageId}` streams the same rendered answer over SSE.

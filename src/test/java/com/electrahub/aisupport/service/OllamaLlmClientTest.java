@@ -14,15 +14,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class OpenAiLlmClientTest {
+class OllamaLlmClientTest {
 
     @Test
-    void callsResponsesApiAndExtractsOutputText() throws IOException {
+    void callsChatApiAndExtractsMessageContent() throws IOException {
         AtomicReference<String> requestBody = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
-        server.createContext("/v1/responses", exchange -> {
+        server.createContext("/api/chat", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            byte[] response = "{\"output_text\":\"The charger is offline. Try another available connector.\"}".getBytes(StandardCharsets.UTF_8);
+            byte[] response = "{\"message\":{\"role\":\"assistant\",\"content\":\"The connector is already in use. Stop the active session first.\"},\"done\":true}".getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
@@ -32,7 +32,7 @@ class OpenAiLlmClientTest {
         try {
             AiSupportProperties properties = new AiSupportProperties(
                     true,
-                    "openai",
+                    "ollama",
                     "support@electrahub.com",
                     0,
                     "http://session-service:8083",
@@ -40,27 +40,29 @@ class OpenAiLlmClientTest {
                     "http://charger-management-service:8086",
                     "http://ocpp-service:8082",
                     100,
-                    "test-key",
+                    "",
+                    "https://api.openai.com",
                     "http://localhost:" + server.getAddress().getPort(),
-                    "http://ollama:11434",
-                    "gpt-4.1-mini",
+                    "electrahub-sparky",
                     0.2,
                     500,
                     2_000
             );
-            OpenAiLlmClient client = new OpenAiLlmClient(properties, new ObjectMapper());
+            OllamaLlmClient client = new OllamaLlmClient(properties, new ObjectMapper());
             LlmClient.LlmCompletion completion = client.complete(new LlmClient.LlmPrompt(
                     "Why did charging start fail?",
-                    new ContextPayload("liveCharging", "charging", null, "EH-1", "CON-1", "LOC-1", null, "driver"),
-                    new DiagnosticAnswerService.DiagnosticAnswer("diagnose_charging_start", "Fallback answer", "charger: EH-1"),
-                    new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of("charger EH-1 status is UNAVAILABLE"), List.of())
+                    new ContextPayload("chargerDetail", "charging", null, "EH-1", "CON-1", "LOC-1", null, "driver"),
+                    new DiagnosticAnswerService.DiagnosticAnswer("diagnose_charging_start", "Fallback answer", "connector active"),
+                    new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of("connector CON-1 has active session"), List.of())
             ));
 
             assertThat(completion.ok()).isTrue();
-            assertThat(completion.answer()).contains("charger is offline");
-            assertThat(requestBody.get()).contains("gpt-4.1-mini");
-            assertThat(requestBody.get()).contains("charger EH-1 status is UNAVAILABLE");
-            assertThat(requestBody.get()).doesNotContain("Bearer");
+            assertThat(completion.provider()).isEqualTo("ollama");
+            assertThat(completion.model()).isEqualTo("electrahub-sparky");
+            assertThat(completion.answer()).contains("connector is already in use");
+            assertThat(requestBody.get()).contains("\"stream\":false");
+            assertThat(requestBody.get()).contains("electrahub-sparky");
+            assertThat(requestBody.get()).contains("connector CON-1 has active session");
         } finally {
             server.stop(0);
         }

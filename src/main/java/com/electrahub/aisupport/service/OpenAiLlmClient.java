@@ -4,7 +4,6 @@ import com.electrahub.aisupport.config.AiSupportProperties;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -17,7 +16,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 
-@Service
 class OpenAiLlmClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(OpenAiLlmClient.class);
 
@@ -51,7 +49,7 @@ class OpenAiLlmClient implements LlmClient {
         String body = requestBody(prompt);
         long startedNanos = System.nanoTime();
         log.info("OpenAI response request starting provider=openai model={} baseUrl={} promptChars={} requestBytes={} maxOutputTokens={} temperature={}",
-                properties.model(), sanitizeBaseUrl(properties.openaiBaseUrl()), promptSize(prompt), body.length(), properties.maxOutputTokens(), properties.temperature());
+                properties.model(), sanitizeBaseUrl(properties.openaiBaseUrl()), LlmPromptFormatter.promptSize(prompt), body.length(), properties.maxOutputTokens(), properties.temperature());
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -113,35 +111,12 @@ class OpenAiLlmClient implements LlmClient {
         ArrayNode content = objectMapper.createArrayNode();
         ObjectNode text = objectMapper.createObjectNode();
         text.put("type", "input_text");
-        text.put("text", promptText(prompt));
+        text.put("text", LlmPromptFormatter.promptText(prompt));
         content.add(text);
         user.set("content", content);
         input.add(user);
         root.set("input", input);
         return root.toString();
-    }
-
-    private String promptText(LlmPrompt prompt) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("User message:\n").append(nullToBlank(prompt.userMessage())).append("\n\n");
-        builder.append("Audience and screen context:\n");
-        if (prompt.context() == null) {
-            builder.append("- none\n");
-        } else {
-            append(builder, "audience", prompt.context().audience());
-            append(builder, "screen", prompt.context().screen());
-            append(builder, "resourceType", prompt.context().resourceType());
-            append(builder, "chargerId", prompt.context().chargerId());
-            append(builder, "connectorId", prompt.context().connectorId());
-            append(builder, "locationId", prompt.context().locationId());
-            append(builder, "sessionId", prompt.context().sessionId());
-        }
-        builder.append("\nDeterministic Sparky fallback answer. Preserve its safety and do not contradict live facts:\n")
-                .append(prompt.deterministicAnswer() == null ? "" : prompt.deterministicAnswer().text())
-                .append("\n\nLive backend facts and gaps:\n")
-                .append(prompt.diagnostics() == null ? "No backend facts were available." : prompt.diagnostics().toAnswerText())
-                .append("\n\nWrite the final user-facing answer now.");
-        return builder.toString();
     }
 
     private String extractOutputText(JsonNode json) {
@@ -163,10 +138,6 @@ class OpenAiLlmClient implements LlmClient {
             }
         }
         return builder.toString().trim();
-    }
-
-    private int promptSize(LlmPrompt prompt) {
-        return promptText(prompt).length() + SupportPrompt.SYSTEM_PROMPT.length() + SupportPrompt.RESPONSE_CONTRACT.length();
     }
 
     private static long elapsedMs(long startedNanos) {
@@ -217,16 +188,6 @@ class OpenAiLlmClient implements LlmClient {
             return "https://api.openai.com";
         }
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
-    }
-
-    private static void append(StringBuilder builder, String label, String value) {
-        if (!isBlank(value)) {
-            builder.append("- ").append(label).append(": ").append(value).append('\n');
-        }
-    }
-
-    private static String nullToBlank(String value) {
-        return value == null ? "" : value;
     }
 
     private static boolean isBlank(String value) {

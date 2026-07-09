@@ -28,6 +28,7 @@ electrahub:
     diagnostics-timeout-ms: ${AI_DIAGNOSTICS_TIMEOUT_MS:1800}
     openai-api-key: ${OPENAI_API_KEY:}
     openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+    ollama-base-url: ${OLLAMA_BASE_URL:http://ollama:11434}
     model: ${AI_MODEL:gpt-4.1-mini}
     temperature: ${AI_TEMPERATURE:0.2}
     max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:900}
