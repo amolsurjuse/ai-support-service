@@ -63,6 +63,8 @@ class OllamaLlmClientTest {
             assertThat(requestBody.get()).contains("\"stream\":false");
             assertThat(requestBody.get()).contains("electrahub-sparky");
             assertThat(requestBody.get()).contains("connector CON-1 has active session");
+            assertThat(requestBody.get()).contains("Project knowledge");
+            assertThat(requestBody.get()).contains("session-service");
         } finally {
             server.stop(0);
         }

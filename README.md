@@ -68,6 +68,13 @@ The service sends only the redacted user message, screen/context identifiers, de
 
 Sparky can also run against a local or cluster-hosted Ollama model. Ollama customization is handled with `ollama/Modelfile`, which creates an ElectraHub domain-tuned runtime model from a base model and system instructions.
 
+The project tuning is intentionally grounded instead of open-ended fine-tuning:
+
+- `ollama/Modelfile` defines Sparky's ElectraHub role, safety rules, service ownership, and terminology.
+- `ElectraHubKnowledgeBase` injects a small set of request-relevant project facts into the prompt.
+- Live backend diagnostics remain the source of truth for current charger, wallet, payment, receipt, and session state.
+- If Ollama is unavailable or too slow, deterministic diagnostics are returned as the safe fallback.
+
 Create the local model:
 
 ```powershell

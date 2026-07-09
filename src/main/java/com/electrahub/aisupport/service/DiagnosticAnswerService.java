@@ -31,7 +31,13 @@ public class DiagnosticAnswerService {
         BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = diagnosticsClient.collect(safeContext, authorization);
 
         DiagnosticAnswer fallback;
-        if (message.contains("503") || message.contains("unavailable") || message.contains("temporarily")) {
+        if (containsAny(message, "remote stop", "stop charging") && containsAny(message, "idle fee", "receipt", "unplug")) {
+            fallback = remoteStopIdleFee(safeContext, diagnostics);
+        } else if (message.contains("simulator") && containsAny(message, "security code", "unplug", "mobile app", "link")) {
+            fallback = simulatorSecureUnplug(safeContext, diagnostics);
+        } else if (containsAny(message, "tap credit", "card present", "credit card") && containsAny(message, "payment", "transaction id", "admin")) {
+            fallback = cardPresentAdminView(safeContext, diagnostics);
+        } else if (message.contains("503") || message.contains("unavailable") || message.contains("temporarily")) {
             fallback = chargingUnavailable(safeContext, diagnostics);
         } else if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
             fallback = alreadyActive(safeContext, diagnostics);
@@ -50,6 +56,10 @@ public class DiagnosticAnswerService {
                                                  ContextPayload context,
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
                                                  DiagnosticAnswer fallback) {
+        if (requiresExactProjectAnswer(fallback.toolName())) {
+            log.info("Sparky using deterministic fallback reason=exact_project_flow tool={}", fallback.toolName());
+            return fallback;
+        }
         if (!llmClient.available()) {
             log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
                     fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
@@ -64,6 +74,11 @@ public class DiagnosticAnswerService {
         if (!completion.ok() || completion.answer().isBlank()) {
             log.warn("Sparky using deterministic fallback reason=llm_completion_failed provider={} model={} tool={} error={}",
                     completion.provider(), completion.model(), fallback.toolName(), completion.error());
+            return fallback;
+        }
+        if (looksLikePromptLeak(completion.answer())) {
+            log.warn("Sparky using deterministic fallback reason=llm_prompt_leak provider={} model={} tool={}",
+                    completion.provider(), completion.model(), fallback.toolName());
             return fallback;
         }
         log.info("Sparky using LLM answer provider={} model={} tool={} answerChars={}",
@@ -94,6 +109,48 @@ public class DiagnosticAnswerService {
 
                         Try refreshing the charger screen. If the charger still shows unavailable, pick another connector or contact support at %s.
                         """.formatted(properties.supportEmail()).trim(), diagnostics),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer remoteStopIdleFee(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        return new DiagnosticAnswer(
+                "diagnose_idle_remote_stop",
+                """
+                        For an idle-fee charger, remote stop should pause charging and move the session to idle/SUSPENDED. The session should remain active and idle fee can continue until the vehicle is unplugged.
+
+                        Support should check session-service state first: remoteStopRequestedAt, status, idleStartedAt, unplugRequiredToStop, and whether a terminal/receipt event was emitted too early.
+
+                        Then check ocpp-service and simulator state: connector Redis state, StopTransaction/TransactionEvent, StatusNotification, and the unplug event. The receipt should be generated only after unplug or terminal settlement.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer simulatorSecureUnplug(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        return new DiagnosticAnswer(
+                "diagnose_simulator_secure_unplug",
+                """
+                        When the mobile app opens the simulator link for the active session, the security code should be passed in the URL and pre-filled/hidden. The driver should not have to type the code again.
+
+                        If idle fee is enabled and the session is active/idle, the simulator should authorize unplug using that code and then emit the unplug/status events.
+
+                        If idle fee is disabled or there is no active session, unplug should not require a security code.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer cardPresentAdminView(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        return new DiagnosticAnswer(
+                "explain_card_present_admin_payment",
+                """
+                        For a tap-credit-card/card-present session, admin should see the payment method as Credit Card, with a masked card number when available.
+
+                        If ElectraHub authorized the card-present payment, show the ElectraHub payment authorization id. Do not show raw processor transaction ids or full card details.
+
+                        These sessions may be anonymous because the driver account may not be recognized from a physical card tap.
+                        """.trim(),
                 contextSummary(context)
         );
     }
@@ -174,6 +231,32 @@ public class DiagnosticAnswerService {
             builder.append(" | ");
         }
         builder.append(label).append(": ").append(value);
+    }
+
+    private static boolean containsAny(String value, String... needles) {
+        if (value == null) {
+            return false;
+        }
+        for (String needle : needles) {
+            if (value.contains(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean looksLikePromptLeak(String answer) {
+        String normalized = answer == null ? "" : answer.toLowerCase();
+        return normalized.contains("if the user asks")
+                || normalized.contains("response rules")
+                || normalized.contains("project knowledge:")
+                || normalized.contains("backend facts:");
+    }
+
+    private static boolean requiresExactProjectAnswer(String toolName) {
+        return "diagnose_idle_remote_stop".equals(toolName)
+                || "diagnose_simulator_secure_unplug".equals(toolName)
+                || "explain_card_present_admin_payment".equals(toolName);
     }
 
     public record DiagnosticAnswer(String toolName, String text, String contextSummary) {
