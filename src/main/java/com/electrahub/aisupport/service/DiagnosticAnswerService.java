@@ -35,7 +35,7 @@ public class DiagnosticAnswerService {
             fallback = remoteStopIdleFee(safeContext, diagnostics);
         } else if (message.contains("simulator") && containsAny(message, "security code", "unplug", "mobile app", "link")) {
             fallback = simulatorSecureUnplug(safeContext, diagnostics);
-        } else if (containsAny(message, "tap credit", "card present", "credit card") && containsAny(message, "payment", "transaction id", "admin")) {
+        } else if (isCardPresentQuestion(message)) {
             fallback = cardPresentAdminView(safeContext, diagnostics);
         } else if (message.contains("503") || message.contains("unavailable") || message.contains("temporarily")) {
             fallback = chargingUnavailable(safeContext, diagnostics);
@@ -114,6 +114,19 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer remoteStopIdleFee(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        if (isDriverAudience(context)) {
+            return new DiagnosticAnswer(
+                    "diagnose_idle_remote_stop",
+                    """
+                            Charging has stopped, but this charger has idle fees. Your session stays active until the vehicle is unplugged.
+
+                            Open the simulator link from the charging screen and unplug the connector. Your receipt will be generated after unplug is completed.
+
+                            If the screen still shows idle after unplugging, refresh the charging screen or contact support at %s.
+                            """.formatted(properties.supportEmail()).trim(),
+                    contextSummary(context)
+            );
+        }
         return new DiagnosticAnswer(
                 "diagnose_idle_remote_stop",
                 """
@@ -128,6 +141,19 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer simulatorSecureUnplug(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        if (isDriverAudience(context)) {
+            return new DiagnosticAnswer(
+                    "diagnose_simulator_secure_unplug",
+                    """
+                            When you open the simulator from the app, the access code should already be included. You should not need to type it manually.
+
+                            Tap unplug to finish the session. If there is no active charging or idle session, unplug should not ask for a code.
+
+                            If the unplug button is missing or the code is still requested, refresh the link from the charging screen.
+                            """.trim(),
+                    contextSummary(context)
+            );
+        }
         return new DiagnosticAnswer(
                 "diagnose_simulator_secure_unplug",
                 """
@@ -142,6 +168,19 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer cardPresentAdminView(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        if (isDriverAudience(context)) {
+            return new DiagnosticAnswer(
+                    "explain_card_present_admin_payment",
+                    """
+                            If you started charging by tapping a credit card, the session may not be linked to your app account.
+
+                            Your receipt should show Credit Card as the payment method, with masked card details when available.
+
+                            ElectraHub should not show the full card number or raw processor transaction id.
+                            """.trim(),
+                    contextSummary(context)
+            );
+        }
         return new DiagnosticAnswer(
                 "explain_card_present_admin_payment",
                 """
@@ -245,12 +284,34 @@ public class DiagnosticAnswerService {
         return false;
     }
 
+    private static boolean isCardPresentQuestion(String message) {
+        return containsAny(message, "tap credit", "tapped my credit", "card present", "credit card")
+                && containsAny(message, "payment", "transaction id", "admin", "receipt", "charge", "session");
+    }
+
     private static boolean looksLikePromptLeak(String answer) {
         String normalized = answer == null ? "" : answer.toLowerCase();
         return normalized.contains("if the user asks")
                 || normalized.contains("response rules")
                 || normalized.contains("project knowledge:")
                 || normalized.contains("backend facts:");
+    }
+
+    private static boolean isDriverAudience(ContextPayload context) {
+        if (context == null) {
+            return true;
+        }
+        String audience = context.audience() == null ? "" : context.audience().toLowerCase();
+        String screen = context.screen() == null ? "" : context.screen().toLowerCase();
+        if (audience.contains("admin") || audience.contains("support") || audience.contains("csr")) {
+            return false;
+        }
+        return audience.isBlank()
+                || audience.contains("driver")
+                || audience.contains("owner")
+                || screen.contains("livecharging")
+                || screen.contains("activecharging")
+                || screen.contains("mobile");
     }
 
     private static boolean requiresExactProjectAnswer(String toolName) {
