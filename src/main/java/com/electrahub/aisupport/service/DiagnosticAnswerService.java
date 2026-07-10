@@ -46,14 +46,26 @@ public class DiagnosticAnswerService {
             fallback = totalRevenueMetric(safeContext);
         } else if (isChargerAvailabilityQuestion(message)) {
             fallback = chargerAvailability(safeContext, diagnostics);
-        } else if (containsAny(message, "remote stop", "stop charging") && containsAny(message, "idle fee", "receipt", "unplug")) {
+        } else if (isRemoteStopIdleQuestion(message)) {
             fallback = remoteStopIdleFee(safeContext, diagnostics);
         } else if (message.contains("simulator") && containsAny(message, "security code", "unplug", "mobile app", "link")) {
             fallback = simulatorSecureUnplug(safeContext, diagnostics);
         } else if (isCardPresentQuestion(message)) {
             fallback = cardPresentAdminView(safeContext, diagnostics);
-        } else if (message.contains("503") || message.contains("unavailable") || message.contains("temporarily")) {
+        } else if (isStartFailureQuestion(message)) {
             fallback = chargingUnavailable(safeContext, diagnostics);
+        } else if (isLastReceiptQuestion(message)) {
+            fallback = receiptLookupNeedsSelection(safeContext, diagnostics);
+        } else if (isSpendAnalyticsQuestion(message)) {
+            fallback = spendAnalyticsNeedsReport(safeContext);
+        } else if (isUsageAnalyticsQuestion(message)) {
+            fallback = usageAnalyticsNeedsReport(safeContext);
+        } else if (isTripDataQuestion(message)) {
+            fallback = tripDataUnavailable(safeContext);
+        } else if (isPricingComparisonQuestion(message)) {
+            fallback = pricingComparisonNeedsContext(safeContext);
+        } else if (isFindChargerQuestion(message)) {
+            fallback = chargerSearchNeedsAppMap(safeContext);
         } else if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
             fallback = alreadyActive(safeContext, diagnostics);
         } else if (message.contains("stuck") || message.contains("preparing")) {
@@ -112,18 +124,107 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer chargingUnavailable(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        String base = """
+                I can help check that. A charging start failure usually means the charger command could not be completed at that moment.
+
+                Most likely causes:
+                - the charger was not connected to ElectraHub
+                - the connector was not actually available
+                - another session was still preparing or finishing
+                - wallet/payment eligibility failed before the remote start could complete
+
+                Try refreshing the charger screen. If the charger still shows unavailable, pick another connector or contact support at %s.
+                """.formatted(properties.supportEmail()).trim();
+        if (!hasLiveEntityContext(context)) {
+            return new DiagnosticAnswer(
+                    "diagnose_charging_start",
+                    base + "\n\nI do not have a selected charger, connector, or session id in this chat context, so I cannot confirm the exact failed start from live backend data.",
+                    contextSummary(context)
+            );
+        }
         return new DiagnosticAnswer(
                 "diagnose_charging_start",
-                enrich("""
-                        I can help check that. A 503 during start usually means the charger command could not be completed at that moment.
+                enrich(base, diagnostics),
+                contextSummary(context)
+        );
+    }
 
-                        Most likely causes:
-                        - the charger was not connected to ElectraHub
-                        - the connector was not actually available
-                        - another session was still preparing or finishing
+    private DiagnosticAnswer receiptLookupNeedsSelection(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        String base = """
+                I cannot open a receipt from chat unless a specific session is selected.
 
-                        Try refreshing the charger screen. If the charger still shows unavailable, pick another connector or contact support at %s.
-                        """.formatted(properties.supportEmail()).trim(), diagnostics),
+                Open the charging history entry or receipt screen for the session, then ask again. With a session selected, Sparky can use that session context instead of guessing.
+                """.trim();
+        if (context == null || isBlank(context.sessionId())) {
+            return new DiagnosticAnswer(
+                    "explain_receipt_lookup",
+                    base,
+                    contextSummary(context)
+            );
+        }
+        return new DiagnosticAnswer(
+                "explain_receipt_lookup",
+                enrich(base, diagnostics),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer spendAnalyticsNeedsReport(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_spend_analytics_gap",
+                """
+                        I cannot calculate monthly spend from chat yet because this request needs a dated receipt/session aggregation API.
+
+                        Use the history or payments report for the selected month. Sparky should only give a total after the backend provides the month window and completed receipt totals.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer usageAnalyticsNeedsReport(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_usage_analytics_gap",
+                """
+                        I cannot calculate usage analytics from chat yet because this request needs a completed-session aggregation.
+
+                        For most-used station or yearly kWh, the backend should aggregate completed sessions by station and date window. Without that report, Sparky should not invent a station or kWh total.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer tripDataUnavailable(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_trip_data_unavailable",
+                """
+                        Sparky does not have trip distance data.
+
+                        ElectraHub can answer charging session and receipt questions, but trips over a distance threshold require vehicle trip telemetry that is not part of the current Sparky diagnostics.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer pricingComparisonNeedsContext(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_pricing_context_needed",
+                """
+                        I cannot compare pricing plans precisely without a selected tariff, charger, location, or pricing-plan report.
+
+                        Open the charger or pricing plan first, then ask about that specific plan. Sparky should use pricing-service tariff data and avoid estimating prices.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer chargerSearchNeedsAppMap(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_charger_search_gap",
+                """
+                        I cannot search for another charger from chat yet because Sparky does not receive your map bounds, location, connector filters, or live search results.
+
+                        Use the map filter/search to find another CCS connector. If you open a specific charger, Sparky can check that charger availability from live status.
+                        """.trim(),
                 contextSummary(context)
         );
     }
@@ -282,25 +383,41 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer stuckPreparing(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        String base = """
+                A session stuck in Preparing means the app received the start response, but ElectraHub is still waiting for the charger to confirm charging has begun.
+
+                Keep the app open for a few seconds. If power and cost do not start moving, the charger may be offline, busy, or not sending meter updates.
+                """.trim();
+        if (!hasLiveEntityContext(context)) {
+            return new DiagnosticAnswer(
+                    "diagnose_session_state",
+                    base + "\n\nI do not have the active session or charger id in this chat context, so I cannot inspect the exact session state yet.",
+                    contextSummary(context)
+            );
+        }
         return new DiagnosticAnswer(
                 "diagnose_session_state",
-                enrich("""
-                        A session stuck in Preparing means the app received the start response, but ElectraHub is still waiting for the charger to confirm charging has begun.
-
-                        Keep the app open for a few seconds. If power and cost do not start moving, the charger may be offline, busy, or not sending meter updates.
-                        """.trim(), diagnostics),
+                enrich(base, diagnostics),
                 contextSummary(context)
         );
     }
 
     private DiagnosticAnswer heartbeat(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        String base = """
+                Charger availability depends on recent heartbeat messages from the charger.
+
+                If the charger stops sending heartbeat events, ElectraHub marks it unavailable so drivers do not start sessions on a charger that cannot receive commands.
+                """.trim();
+        if (context == null || isBlank(context.chargerId())) {
+            return new DiagnosticAnswer(
+                    "check_charger_liveness",
+                    base + "\n\nI do not have a selected charger id in this chat context, so I cannot check the exact OCPP heartbeat.",
+                    contextSummary(context)
+            );
+        }
         return new DiagnosticAnswer(
                 "check_charger_liveness",
-                enrich("""
-                        Charger availability depends on recent heartbeat messages from the charger.
-
-                        If the charger stops sending heartbeat events, ElectraHub marks it unavailable so drivers do not start sessions on a charger that cannot receive commands.
-                        """.trim(), diagnostics),
+                enrich(base, diagnostics),
                 contextSummary(context)
         );
     }
@@ -393,6 +510,13 @@ public class DiagnosticAnswerService {
         builder.append(label).append(": ").append(value);
     }
 
+    private static boolean hasLiveEntityContext(ContextPayload context) {
+        return context != null
+                && (!isBlank(context.sessionId())
+                || !isBlank(context.chargerId())
+                || !isBlank(context.connectorId()));
+    }
+
     private static boolean containsAny(String value, String... needles) {
         if (value == null) {
             return false;
@@ -410,6 +534,16 @@ public class DiagnosticAnswerService {
                 && containsAny(message, "payment", "transaction id", "admin", "receipt", "charge", "session");
     }
 
+    private static boolean isRemoteStopIdleQuestion(String message) {
+        return containsAny(message, "remote stop", "stop charging", "stop request")
+                && containsAny(message, "idle", "idle fee", "receipt", "unplug", "still active");
+    }
+
+    private static boolean isStartFailureQuestion(String message) {
+        return containsAny(message, "start fail", "start failed", "failed to start", "why did start fail",
+                "503", "unavailable", "temporarily unavailable", "remote start failed");
+    }
+
     private static boolean isRevenueDashboardQuestion(String message, ContextPayload context) {
         String screen = context == null || context.screen() == null ? "" : context.screen().toLowerCase();
         String resourceType = context == null || context.resourceType() == null ? "" : context.resourceType().toLowerCase();
@@ -421,6 +555,30 @@ public class DiagnosticAnswerService {
         return containsAny(message, "is this charger available", "charger available", "connector available", "available to charge")
                 || (containsAny(message, "available", "free", "busy", "occupied")
                 && containsAny(message, "charger", "connector", "station"));
+    }
+
+    private static boolean isLastReceiptQuestion(String message) {
+        return containsAny(message, "show last receipt", "last receipt", "latest receipt", "open receipt", "show receipt");
+    }
+
+    private static boolean isSpendAnalyticsQuestion(String message) {
+        return containsAny(message, "how much did i spend", "spend last month", "spent last month", "monthly spend", "total spend");
+    }
+
+    private static boolean isUsageAnalyticsQuestion(String message) {
+        return containsAny(message, "most used station", "total kwh", "kwh this year", "yearly kwh", "energy this year");
+    }
+
+    private static boolean isTripDataQuestion(String message) {
+        return containsAny(message, "trips over", "trip over", "trip distance", "over 100 km", "over 100km");
+    }
+
+    private static boolean isPricingComparisonQuestion(String message) {
+        return containsAny(message, "compare pricing", "compare price", "pricing plans", "price plans", "compare tariffs");
+    }
+
+    private static boolean isFindChargerQuestion(String message) {
+        return containsAny(message, "find another", "find a charger", "another ccs", "nearby charger", "search charger");
     }
 
     private static String normalize(String value) {
@@ -461,7 +619,16 @@ public class DiagnosticAnswerService {
                 || "diagnose_simulator_secure_unplug".equals(toolName)
                 || "explain_card_present_admin_payment".equals(toolName)
                 || "explain_admin_total_revenue".equals(toolName)
-                || "check_charger_availability".equals(toolName);
+                || "check_charger_availability".equals(toolName)
+                || "diagnose_charging_start".equals(toolName)
+                || "diagnose_session_state".equals(toolName)
+                || "check_charger_liveness".equals(toolName)
+                || "explain_receipt_lookup".equals(toolName)
+                || "explain_spend_analytics_gap".equals(toolName)
+                || "explain_usage_analytics_gap".equals(toolName)
+                || "explain_trip_data_unavailable".equals(toolName)
+                || "explain_pricing_context_needed".equals(toolName)
+                || "explain_charger_search_gap".equals(toolName);
     }
 
     public record DiagnosticAnswer(String toolName, String text, String contextSummary) {

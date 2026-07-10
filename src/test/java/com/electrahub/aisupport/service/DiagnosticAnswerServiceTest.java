@@ -139,6 +139,117 @@ class DiagnosticAnswerServiceTest {
         assertThat(answer).doesNotContain("not available right now");
     }
 
+    @Test
+    void routesAdminIdleRemoteStopPromptToAdminDiagnostics() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "charging-sessions", "session", null, null, null, null, null, "admin");
+
+        String answer = service.renderForClient(service.answer(
+                "Why is a session still idle after remote stop?",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("session-service state first");
+        assertThat(answer).contains("remoteStopRequestedAt");
+        assertThat(answer).contains("ocpp-service and simulator state");
+        assertThat(answer).doesNotContain("Your session stays active");
+    }
+
+    @Test
+    void routesStartFailurePromptWithoutInventingLiveState() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "liveCharging", "charging", null, null, null, null, null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Why did start fail?",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("charging start failure");
+        assertThat(answer).contains("I do not have a selected charger, connector, or session id");
+        assertThat(answer).doesNotContain("What should admin see");
+    }
+
+    @Test
+    void routesStuckPromptWithoutUnrelatedPaymentAdviceWhenContextMissing() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "liveCharging", "charging", null, null, null, null, null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Why is charging stuck?",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("waiting for the charger to confirm charging has begun");
+        assertThat(answer).contains("I do not have the active session or charger id");
+        assertThat(answer).doesNotContain("saved payment cards");
+        assertThat(answer).doesNotContain("auto top-up");
+    }
+
+    @Test
+    void refusesMonthlySpendWithoutAggregationApi() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "dashboard", null, null, null, null, null, null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "How much did I spend last month?",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("cannot calculate monthly spend from chat yet");
+        assertThat(answer).contains("dated receipt/session aggregation API");
+        assertThat(answer).doesNotContain("What should admin see");
+    }
+
+    @Test
+    void asksForSelectedSessionForLastReceipt() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "history", null, null, null, null, null, null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Show last receipt",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("cannot open a receipt from chat unless a specific session is selected");
+        assertThat(answer).contains("Open the charging history entry");
+    }
+
+    @Test
+    void refusesTripDistanceData() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "history", null, null, null, null, null, null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Trips over 100 km",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("does not have trip distance data");
+        assertThat(answer).contains("vehicle trip telemetry");
+    }
+
+    @Test
+    void asksForPricingContextBeforeComparingPlans() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "payments", null, null, null, null, null, null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Compare pricing plans",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("cannot compare pricing plans precisely");
+        assertThat(answer).contains("selected tariff, charger, location, or pricing-plan report");
+    }
+
     private DiagnosticAnswerService service() {
         return serviceWithDiagnostics(new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of()));
     }
