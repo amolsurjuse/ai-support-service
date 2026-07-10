@@ -65,7 +65,7 @@ public class DiagnosticAnswerService {
         } else if (isPricingComparisonQuestion(message)) {
             fallback = pricingComparisonNeedsContext(safeContext);
         } else if (isFindChargerQuestion(message)) {
-            fallback = chargerSearchNeedsAppMap(safeContext);
+            fallback = chargerAlternatives(userMessage, safeContext);
         } else if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
             fallback = alreadyActive(safeContext, diagnostics);
         } else if (message.contains("stuck") || message.contains("preparing")) {
@@ -217,14 +217,49 @@ public class DiagnosticAnswerService {
         );
     }
 
-    private DiagnosticAnswer chargerSearchNeedsAppMap(ContextPayload context) {
-        return new DiagnosticAnswer(
-                "explain_charger_search_gap",
-                """
-                        I cannot search for another charger from chat yet because Sparky does not receive your map bounds, location, connector filters, or live search results.
+    private DiagnosticAnswer chargerAlternatives(String userMessage, ContextPayload context) {
+        BackendDiagnosticsClient.ChargerAlternatives alternatives =
+                diagnosticsClient.findChargerAlternatives(context, userMessage, 3);
+        if (!alternatives.alternatives().isEmpty()) {
+            StringBuilder builder = new StringBuilder("I found these available ");
+            builder.append(alternatives.connectorLabel()).append(" options");
+            if (!isBlank(alternatives.referenceLocation())) {
+                builder.append(" near ").append(alternatives.referenceLocation());
+            }
+            builder.append(":\n\n");
+            for (BackendDiagnosticsClient.ChargerAlternative alternative : alternatives.alternatives()) {
+                builder.append("- ")
+                        .append(alternative.chargerName())
+                        .append(" (")
+                        .append(alternative.chargerId())
+                        .append("), connector ")
+                        .append(alternative.connectorId())
+                        .append(" at ")
+                        .append(alternative.locationName());
+                if (!isBlank(alternative.distanceLabel())) {
+                    builder.append(" - ").append(alternative.distanceLabel()).append(" away");
+                }
+                if (!isBlank(alternative.powerLabel())) {
+                    builder.append(", ").append(alternative.powerLabel());
+                }
+                builder.append('\n');
+            }
+            builder.append("\nOpen one of these chargers from the map/list and confirm the connector still shows Available before starting.");
+            return new DiagnosticAnswer(
+                    "find_charger_alternatives",
+                    builder.toString().trim(),
+                    contextSummary(context)
+            );
+        }
 
-                        Use the map filter/search to find another CCS connector. If you open a specific charger, Sparky can check that charger availability from live status.
-                        """.trim(),
+        return new DiagnosticAnswer(
+                "find_charger_alternatives",
+                ("I checked live charger inventory, but I could not find another available %s connector%s right now.\n\n"
+                        + "Try refreshing the map or widening the area. If the current charger is busy, choose a connector that shows Available before starting.")
+                        .formatted(
+                                alternatives.connectorLabel(),
+                                isBlank(alternatives.referenceLocation()) ? "" : " near " + alternatives.referenceLocation()
+                        ).trim(),
                 contextSummary(context)
         );
     }
@@ -628,7 +663,7 @@ public class DiagnosticAnswerService {
                 || "explain_usage_analytics_gap".equals(toolName)
                 || "explain_trip_data_unavailable".equals(toolName)
                 || "explain_pricing_context_needed".equals(toolName)
-                || "explain_charger_search_gap".equals(toolName);
+                || "find_charger_alternatives".equals(toolName);
     }
 
     public record DiagnosticAnswer(String toolName, String text, String contextSummary) {

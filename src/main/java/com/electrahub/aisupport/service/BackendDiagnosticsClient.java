@@ -59,6 +59,29 @@ public class BackendDiagnosticsClient {
         return new DiagnosticsSnapshot(List.copyOf(facts), List.copyOf(gaps));
     }
 
+    public ChargerAlternatives findChargerAlternatives(ContextPayload context, String userMessage, int limit) {
+        ContextPayload safeContext = context == null
+                ? new ContextPayload(null, null, null, null, null, null, null, "driver")
+                : context;
+        String requestedStandard = requestedConnectorStandard(userMessage);
+        Optional<ReferencePoint> reference = readReferencePoint(safeContext);
+        List<ChargerAlternative> alternatives = readAvailableAlternatives(safeContext, requestedStandard, reference)
+                .stream()
+                .sorted(Comparator
+                        .comparing((ChargerAlternative alternative) -> alternative.distanceMiles() == null
+                                ? Double.MAX_VALUE
+                                : alternative.distanceMiles())
+                        .thenComparing(ChargerAlternative::chargerId)
+                        .thenComparing(ChargerAlternative::connectorId))
+                .limit(Math.max(1, limit))
+                .toList();
+        return new ChargerAlternatives(
+                connectorLabel(requestedStandard),
+                reference.map(ReferencePoint::locationLabel).orElse(""),
+                alternatives
+        );
+    }
+
     private void readPaymentState(String authorization, List<String> facts, List<String> gaps) {
         if (isBlank(authorization)) {
             gaps.add("payment state skipped because the request did not include a bearer token");
@@ -217,6 +240,129 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("recent OCPP message history was not reachable"));
     }
 
+    private Optional<ReferencePoint> readReferencePoint(ContextPayload context) {
+        if (isBlank(context.chargerId()) && isBlank(context.locationId())) {
+            return Optional.empty();
+        }
+
+        ObjectNode variables = objectMapper.createObjectNode();
+        if (!isBlank(context.chargerId())) {
+            variables.put("chargerId", context.chargerId());
+        }
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("query", """
+                query($chargerId: String) {
+                  ocpiCharger(chargerId: $chargerId) {
+                    chargerId chargerName
+                    location {
+                      ocpiLocationId name city
+                      coordinates { latitude longitude }
+                    }
+                  }
+                }
+                """);
+        body.set("variables", variables);
+
+        return post(properties.chargerServiceUrl(), "/graphql", body.toString(), null)
+                .map(json -> json.path("data").path("ocpiCharger"))
+                .filter(JsonNode::isObject)
+                .map(charger -> {
+                    JsonNode location = charger.path("location");
+                    JsonNode coordinates = location.path("coordinates");
+                    Double latitude = numberOrNull(coordinates.path("latitude"));
+                    Double longitude = numberOrNull(coordinates.path("longitude"));
+                    String label = firstNonBlank(
+                            location.path("name").asText(""),
+                            location.path("ocpiLocationId").asText(""),
+                            context.locationId(),
+                            charger.path("chargerName").asText(""),
+                            charger.path("chargerId").asText("")
+                    );
+                    return new ReferencePoint(label, latitude, longitude);
+                });
+    }
+
+    private List<ChargerAlternative> readAvailableAlternatives(ContextPayload context,
+                                                              String requestedStandard,
+                                                              Optional<ReferencePoint> reference) {
+        ObjectNode variables = objectMapper.createObjectNode();
+        variables.put("countryCode", "US");
+        variables.put("limit", 500);
+        variables.put("offset", 0);
+        reference.ifPresent(point -> {
+            if (point.latitude() != null && point.longitude() != null) {
+                variables.put("latitude", point.latitude());
+                variables.put("longitude", point.longitude());
+                variables.put("radiusKm", 80.0);
+            }
+        });
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("query", """
+                query($countryCode: String, $limit: Int, $offset: Int, $latitude: Float, $longitude: Float, $radiusKm: Float) {
+                  ocpiChargers(countryCode: $countryCode, limit: $limit, offset: $offset, latitude: $latitude, longitude: $longitude, radiusKm: $radiusKm) {
+                    chargerId chargerName status availablePorts busyPorts
+                    location {
+                      ocpiLocationId name city
+                      coordinates { latitude longitude }
+                    }
+                    evses {
+                      uid status
+                      connectors { id status available standard powerType maxPowerKw }
+                    }
+                  }
+                }
+                """);
+        body.set("variables", variables);
+
+        return post(properties.chargerServiceUrl(), "/graphql", body.toString(), null)
+                .map(json -> json.path("data").path("ocpiChargers"))
+                .filter(JsonNode::isArray)
+                .map(chargers -> {
+                    List<ChargerAlternative> results = new ArrayList<>();
+                    for (JsonNode charger : chargers) {
+                        String chargerId = charger.path("chargerId").asText("");
+                        if (!isBlank(context.chargerId()) && context.chargerId().equalsIgnoreCase(chargerId)) {
+                            continue;
+                        }
+                        JsonNode location = charger.path("location");
+                        JsonNode coordinates = location.path("coordinates");
+                        Double chargerLatitude = numberOrNull(coordinates.path("latitude"));
+                        Double chargerLongitude = numberOrNull(coordinates.path("longitude"));
+                        Double distanceMiles = distanceMiles(reference, chargerLatitude, chargerLongitude);
+                        String locationName = firstNonBlank(
+                                location.path("name").asText(""),
+                                location.path("ocpiLocationId").asText(""),
+                                location.path("city").asText(""),
+                                "unknown location"
+                        );
+                        for (JsonNode evse : charger.path("evses")) {
+                            for (JsonNode connector : evse.path("connectors")) {
+                                if (!connectorMatches(connector, requestedStandard)) {
+                                    continue;
+                                }
+                                if (!connector.path("available").asBoolean(false)
+                                        || !"AVAILABLE".equalsIgnoreCase(connector.path("status").asText(""))) {
+                                    continue;
+                                }
+                                results.add(new ChargerAlternative(
+                                        chargerId,
+                                        firstNonBlank(charger.path("chargerName").asText(""), chargerId),
+                                        connector.path("id").asText("--"),
+                                        locationName,
+                                        distanceMiles,
+                                        distanceMiles == null ? "" : "%.1f mi".formatted(distanceMiles),
+                                        powerLabel(connector)
+                                ));
+                            }
+                        }
+                    }
+                    return results;
+                })
+                .orElseGet(List::of);
+    }
+
     private Optional<JsonNode> get(String baseUrl, String path, String authorization) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(trimTrailingSlash(baseUrl) + path))
@@ -321,6 +467,90 @@ public class BackendDiagnosticsClient {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
+    private static String requestedConnectorStandard(String userMessage) {
+        String normalized = userMessage == null ? "" : userMessage.toLowerCase(Locale.ROOT);
+        if (normalized.contains("chademo")) {
+            return "CHADEMO";
+        }
+        if (normalized.contains("ccs2")) {
+            return "CCS2";
+        }
+        if (normalized.contains("ccs1")) {
+            return "CCS1";
+        }
+        if (normalized.contains("ccs")) {
+            return "CCS";
+        }
+        return "CCS";
+    }
+
+    private static boolean connectorMatches(JsonNode connector, String requestedStandard) {
+        String standard = connector.path("standard").asText("").toUpperCase(Locale.ROOT);
+        String requested = requestedStandard == null ? "" : requestedStandard.toUpperCase(Locale.ROOT);
+        if ("CCS".equals(requested)) {
+            return standard.contains("CCS");
+        }
+        return standard.equals(requested);
+    }
+
+    private static String connectorLabel(String requestedStandard) {
+        if (isBlank(requestedStandard)) {
+            return "CCS";
+        }
+        return requestedStandard.toUpperCase(Locale.ROOT);
+    }
+
+    private static String powerLabel(JsonNode connector) {
+        String power = decimal(connector.path("maxPowerKw"));
+        if ("--".equals(power)) {
+            return "";
+        }
+        String standard = connector.path("standard").asText("");
+        if (isBlank(standard)) {
+            return power + " kW";
+        }
+        return standard + " / " + power + " kW";
+    }
+
+    private static Double numberOrNull(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(node.asText());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private static Double distanceMiles(Optional<ReferencePoint> reference, Double latitude, Double longitude) {
+        if (reference.isEmpty()
+                || reference.get().latitude() == null
+                || reference.get().longitude() == null
+                || latitude == null
+                || longitude == null) {
+            return null;
+        }
+        double earthRadiusMiles = 3958.7613;
+        double lat1 = Math.toRadians(reference.get().latitude());
+        double lat2 = Math.toRadians(latitude);
+        double deltaLat = Math.toRadians(latitude - reference.get().latitude());
+        double deltaLon = Math.toRadians(longitude - reference.get().longitude());
+        double a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return earthRadiusMiles * c;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (!isBlank(value)) {
+                return value;
+            }
+        }
+        return "";
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
@@ -381,5 +611,22 @@ public class BackendDiagnosticsClient {
             }
             return builder.toString().trim();
         }
+    }
+
+    private record ReferencePoint(String locationLabel, Double latitude, Double longitude) {
+    }
+
+    public record ChargerAlternatives(String connectorLabel,
+                                      String referenceLocation,
+                                      List<ChargerAlternative> alternatives) {
+    }
+
+    public record ChargerAlternative(String chargerId,
+                                     String chargerName,
+                                     String connectorId,
+                                     String locationName,
+                                     Double distanceMiles,
+                                     String distanceLabel,
+                                     String powerLabel) {
     }
 }

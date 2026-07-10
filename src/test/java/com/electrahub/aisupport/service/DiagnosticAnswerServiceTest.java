@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -250,13 +251,67 @@ class DiagnosticAnswerServiceTest {
         assertThat(answer).contains("selected tariff, charger, location, or pricing-plan report");
     }
 
+    @Test
+    void findsAlternativeCcsChargersFromLiveInventoryContext() {
+        DiagnosticAnswerService service = serviceWithDiagnostics(
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of()),
+                new BackendDiagnosticsClient.ChargerAlternatives(
+                        "CCS",
+                        "ElectraHub Fresno Site 067",
+                        List.of(new BackendDiagnosticsClient.ChargerAlternative(
+                                "EH-US-CHG-0332",
+                                "ElectraHub US Site 067 Charger 2",
+                                "CON-US-0332",
+                                "ElectraHub Fresno Site 067",
+                                0.4,
+                                "0.4 mi",
+                                "CCS1 / 150 kW"))));
+        ContextPayload context = new ContextPayload(
+                "map", "charger", "EH-US-CHG-0331", "EH-US-CHG-0331", "CON-US-0331", "US*EHB*LOC*USA067", null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Find another CCS charger",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("I found these available CCS options near ElectraHub Fresno Site 067");
+        assertThat(answer).contains("EH-US-CHG-0332");
+        assertThat(answer).contains("CON-US-0332");
+        assertThat(answer).contains("0.4 mi away");
+        assertThat(answer).doesNotContain("I cannot search for another charger from chat yet");
+    }
+
+    @Test
+    void reportsNoAlternativeChargerWithoutInventingResults() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "map", "charger", "EH-US-CHG-0331", "EH-US-CHG-0331", "CON-US-0331", "US*EHB*LOC*USA067", null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Find another CCS charger",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("I checked live charger inventory");
+        assertThat(answer).contains("could not find another available CCS connector");
+        assertThat(answer).doesNotContain("I cannot search for another charger from chat yet");
+    }
+
     private DiagnosticAnswerService service() {
         return serviceWithDiagnostics(new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of()));
     }
 
     private DiagnosticAnswerService serviceWithDiagnostics(BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        return serviceWithDiagnostics(
+                diagnostics,
+                new BackendDiagnosticsClient.ChargerAlternatives("CCS", "", List.of()));
+    }
+
+    private DiagnosticAnswerService serviceWithDiagnostics(BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
+                                                           BackendDiagnosticsClient.ChargerAlternatives alternatives) {
         BackendDiagnosticsClient diagnosticsClient = mock(BackendDiagnosticsClient.class);
         when(diagnosticsClient.collect(any(), anyString())).thenReturn(diagnostics);
+        when(diagnosticsClient.findChargerAlternatives(any(), anyString(), anyInt())).thenReturn(alternatives);
 
         LlmClient llmClient = mock(LlmClient.class);
         when(llmClient.available()).thenReturn(false);
