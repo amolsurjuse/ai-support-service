@@ -96,10 +96,56 @@ class DiagnosticAnswerServiceTest {
         assertThat(answer).doesNotContain("start fails");
     }
 
+    @Test
+    void reportsSelectedBusyChargerAsUnavailable() {
+        DiagnosticAnswerService service = serviceWithDiagnostics(
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(
+                        "charger EH-SFO-CHG-001 status is CHARGING with 0 available port(s) and 1 busy port(s)",
+                        "connector CON-SFO-001 is CHARGING available=false power=150 kW"
+                ), List.of()));
+        ContextPayload context = new ContextPayload(
+                "map", "charger", "EH-SFO-CHG-001", "EH-SFO-CHG-001", "CON-SFO-001", "US*EHB*LOC*SFO001", null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Is this charger available?",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("No, this charger is not available right now");
+        assertThat(answer).contains("0 available port(s)");
+        assertThat(answer).contains("1 busy port(s)");
+        assertThat(answer).contains("connector status is CHARGING");
+        assertThat(answer).doesNotContain("Yes, this charger appears available");
+    }
+
+    @Test
+    void reportsSelectedAvailableChargerAsAvailable() {
+        DiagnosticAnswerService service = serviceWithDiagnostics(
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(
+                        "charger EH-SFO-CHG-002 status is AVAILABLE with 1 available port(s) and 0 busy port(s)",
+                        "connector CON-SFO-002 is AVAILABLE available=true power=150 kW"
+                ), List.of()));
+        ContextPayload context = new ContextPayload(
+                "map", "charger", "EH-SFO-CHG-002", "EH-SFO-CHG-002", "CON-SFO-002", "US*EHB*LOC*SFO001", null, "driver");
+
+        String answer = service.renderForClient(service.answer(
+                "Is this charger available?",
+                context,
+                "Bearer token"));
+
+        assertThat(answer).contains("Yes, this charger appears available right now");
+        assertThat(answer).contains("1 available port(s)");
+        assertThat(answer).contains("0 busy port(s)");
+        assertThat(answer).doesNotContain("not available right now");
+    }
+
     private DiagnosticAnswerService service() {
+        return serviceWithDiagnostics(new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of()));
+    }
+
+    private DiagnosticAnswerService serviceWithDiagnostics(BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
         BackendDiagnosticsClient diagnosticsClient = mock(BackendDiagnosticsClient.class);
-        when(diagnosticsClient.collect(any(), anyString())).thenReturn(
-                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of()));
+        when(diagnosticsClient.collect(any(), anyString())).thenReturn(diagnostics);
 
         LlmClient llmClient = mock(LlmClient.class);
         when(llmClient.available()).thenReturn(false);

@@ -7,9 +7,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.Locale;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 @Service
 public class DiagnosticAnswerService {
     private static final Logger log = LoggerFactory.getLogger(DiagnosticAnswerService.class);
+    private static final Pattern CHARGER_PORTS_PATTERN = Pattern.compile(
+            "charger\\s+(\\S+)\\s+status\\s+is\\s+(\\S+)\\s+with\\s+(\\d+)\\s+available\\s+port\\(s\\)\\s+and\\s+(\\d+)\\s+busy\\s+port\\(s\\)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONNECTOR_PATTERN = Pattern.compile(
+            "connector\\s+(\\S+)\\s+is\\s+(\\S+)\\s+available=(true|false)",
+            Pattern.CASE_INSENSITIVE);
     private final AiSupportProperties properties;
     private final PiiRedactor redactor;
     private final BackendDiagnosticsClient diagnosticsClient;
@@ -33,6 +44,8 @@ public class DiagnosticAnswerService {
         DiagnosticAnswer fallback;
         if (isRevenueDashboardQuestion(message, safeContext)) {
             fallback = totalRevenueMetric(safeContext);
+        } else if (isChargerAvailabilityQuestion(message)) {
+            fallback = chargerAvailability(safeContext, diagnostics);
         } else if (containsAny(message, "remote stop", "stop charging") && containsAny(message, "idle fee", "receipt", "unplug")) {
             fallback = remoteStopIdleFee(safeContext, diagnostics);
         } else if (message.contains("simulator") && containsAny(message, "security code", "unplug", "mobile app", "link")) {
@@ -111,6 +124,52 @@ public class DiagnosticAnswerService {
 
                         Try refreshing the charger screen. If the charger still shows unavailable, pick another connector or contact support at %s.
                         """.formatted(properties.supportEmail()).trim(), diagnostics),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer chargerAvailability(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        Optional<ChargerAvailability> availability = parseAvailability(diagnostics);
+        if (availability.isEmpty()) {
+            String missingContext = context == null || (isBlank(context.chargerId()) && isBlank(context.connectorId()))
+                    ? " The app did not send the selected charger id, so I cannot verify this exact charger."
+                    : "";
+            return new DiagnosticAnswer(
+                    "check_charger_availability",
+                    ("I could not confirm live availability for this charger yet.%s Refresh the charger screen and try again, or pick another connector if the app shows it as busy.\n\n%s")
+                            .formatted(missingContext, diagnostics.toAnswerText()).trim(),
+                    contextSummary(context)
+            );
+        }
+
+        ChargerAvailability state = availability.get();
+        if (!state.available()) {
+            return new DiagnosticAnswer(
+                    "check_charger_availability",
+                    """
+                            No, this charger is not available right now.
+
+                            The live status shows %s available port(s) and %s busy port(s)%s. If the connector is marked Charging, another driver is using it. Please choose another available connector or wait until this one becomes available.
+                            """.formatted(
+                                    state.availablePorts(),
+                                    state.busyPorts(),
+                                    state.connectorStatus().map(status -> ", and connector status is " + status).orElse("")
+                            ).trim(),
+                    contextSummary(context)
+            );
+        }
+
+        return new DiagnosticAnswer(
+                "check_charger_availability",
+                """
+                        Yes, this charger appears available right now.
+
+                        The live status shows %s available port(s) and %s busy port(s)%s. You can start charging if the connector is physically ready.
+                        """.formatted(
+                                state.availablePorts(),
+                                state.busyPorts(),
+                                state.connectorStatus().map(status -> ", and connector status is " + status).orElse("")
+                        ).trim(),
                 contextSummary(context)
         );
     }
@@ -266,6 +325,52 @@ public class DiagnosticAnswerService {
         return baseText + "\n\n" + liveFacts;
     }
 
+    private Optional<ChargerAvailability> parseAvailability(BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        if (diagnostics == null) {
+            return Optional.empty();
+        }
+
+        Integer availablePorts = null;
+        Integer busyPorts = null;
+        String chargerStatus = null;
+        String connectorStatus = null;
+        Boolean connectorAvailable = null;
+
+        for (String fact : diagnostics.facts()) {
+            Matcher chargerMatcher = CHARGER_PORTS_PATTERN.matcher(fact);
+            if (chargerMatcher.find()) {
+                chargerStatus = chargerMatcher.group(2);
+                availablePorts = Integer.parseInt(chargerMatcher.group(3));
+                busyPorts = Integer.parseInt(chargerMatcher.group(4));
+                continue;
+            }
+
+            Matcher connectorMatcher = CONNECTOR_PATTERN.matcher(fact);
+            if (connectorMatcher.find()) {
+                connectorStatus = connectorMatcher.group(2);
+                connectorAvailable = Boolean.parseBoolean(connectorMatcher.group(3));
+            }
+        }
+
+        if (availablePorts == null && connectorAvailable == null && chargerStatus == null) {
+            return Optional.empty();
+        }
+
+        boolean statusBlocksAvailability = containsAny(normalize(chargerStatus),
+                "charging", "occupied", "busy", "inoperative", "unavailable", "faulted", "blocked", "reserved")
+                || containsAny(normalize(connectorStatus),
+                "charging", "occupied", "busy", "inoperative", "unavailable", "faulted", "blocked", "reserved");
+        boolean hasAvailablePort = availablePorts == null || availablePorts > 0;
+        boolean connectorAllowsUse = connectorAvailable == null || connectorAvailable;
+        boolean available = hasAvailablePort && connectorAllowsUse && !statusBlocksAvailability;
+
+        return Optional.of(new ChargerAvailability(
+                available,
+                availablePorts == null ? 0 : availablePorts,
+                busyPorts == null ? 0 : busyPorts,
+                Optional.ofNullable(connectorStatus)));
+    }
+
     private String contextSummary(ContextPayload context) {
         if (context == null) {
             return "";
@@ -312,6 +417,20 @@ public class DiagnosticAnswerService {
                 && (message.length() <= 80 || screen.contains("dashboard") || resourceType.contains("dashboard"));
     }
 
+    private static boolean isChargerAvailabilityQuestion(String message) {
+        return containsAny(message, "is this charger available", "charger available", "connector available", "available to charge")
+                || (containsAny(message, "available", "free", "busy", "occupied")
+                && containsAny(message, "charger", "connector", "station"));
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     private static boolean looksLikePromptLeak(String answer) {
         String normalized = answer == null ? "" : answer.toLowerCase();
         return normalized.contains("if the user asks")
@@ -341,9 +460,16 @@ public class DiagnosticAnswerService {
         return "diagnose_idle_remote_stop".equals(toolName)
                 || "diagnose_simulator_secure_unplug".equals(toolName)
                 || "explain_card_present_admin_payment".equals(toolName)
-                || "explain_admin_total_revenue".equals(toolName);
+                || "explain_admin_total_revenue".equals(toolName)
+                || "check_charger_availability".equals(toolName);
     }
 
     public record DiagnosticAnswer(String toolName, String text, String contextSummary) {
+    }
+
+    private record ChargerAvailability(boolean available,
+                                       int availablePorts,
+                                       int busyPorts,
+                                       Optional<String> connectorStatus) {
     }
 }
