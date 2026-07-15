@@ -18,6 +18,10 @@ final class LlmPromptFormatter {
             append(builder, "connectorId", prompt.context().connectorId());
             append(builder, "locationId", prompt.context().locationId());
             append(builder, "sessionId", prompt.context().sessionId());
+            if (prompt.context().attributes() != null && !prompt.context().attributes().isEmpty()) {
+                prompt.context().attributes().entrySet().stream().limit(24).forEach(entry ->
+                        append(builder, "attribute." + entry.getKey(), truncate(entry.getValue(), 240)));
+            }
         }
         builder.append("\nDeterministic Sparky fallback answer. Preserve its safety and do not contradict live facts:\n")
                 .append(prompt.deterministicAnswer() == null ? "" : prompt.deterministicAnswer().text())
@@ -39,6 +43,11 @@ final class LlmPromptFormatter {
 
     private static String nullToBlank(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) return value;
+        return value.substring(0, maxLength);
     }
 
     private static boolean isBlank(String value) {

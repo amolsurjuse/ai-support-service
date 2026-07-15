@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 public final class ChatDtos {
@@ -26,8 +27,14 @@ public final class ChatDtos {
             @Size(max = 160) String connectorId,
             @Size(max = 160) String locationId,
             @Size(max = 160) String sessionId,
-            @Size(max = 40) String audience
+            @Size(max = 40) String audience,
+            @Size(max = 24) Map<String, String> attributes
     ) {
+        public ContextPayload(String screen, String resourceType, String resourceId, String chargerId,
+                              String connectorId, String locationId, String sessionId, String audience) {
+            this(screen, resourceType, resourceId, chargerId, connectorId, locationId, sessionId, audience, Map.of());
+        }
+
         public boolean driverAudience() {
             return audience == null || audience.isBlank() || "driver".equalsIgnoreCase(audience);
         }

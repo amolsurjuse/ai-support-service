@@ -119,6 +119,10 @@ class OllamaLlmClient implements LlmClient {
             appendInline(builder, "connector", prompt.context().connectorId());
             appendInline(builder, "location", prompt.context().locationId());
             appendInline(builder, "session", prompt.context().sessionId());
+            if (prompt.context().attributes() != null && !prompt.context().attributes().isEmpty()) {
+                prompt.context().attributes().entrySet().stream().limit(24).forEach(entry ->
+                        appendInline(builder, "metric." + entry.getKey(), entry.getValue()));
+            }
             builder.append('\n');
         }
 

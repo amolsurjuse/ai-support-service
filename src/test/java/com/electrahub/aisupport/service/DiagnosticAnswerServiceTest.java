@@ -5,6 +5,7 @@ import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -95,6 +96,28 @@ class DiagnosticAnswerServiceTest {
         assertThat(answer).contains("selected dashboard date filter");
         assertThat(answer).contains("completed charging sessions and receipts");
         assertThat(answer).doesNotContain("start fails");
+    }
+
+    @Test
+    void reportsExactRevenueFromLiveDashboardContext() {
+        DiagnosticAnswerService service = service();
+        ContextPayload context = new ContextPayload(
+                "dashboard", "analytics", null, null, null, null, null, "admin",
+                Map.of(
+                        "totalRevenue", "72127.03",
+                        "currency", "USD",
+                        "totalSessions", "1721",
+                        "from", "2026-07-01T00:00:00Z",
+                        "to", "2026-07-14T23:59:59Z",
+                        "filterLocationId", "all"
+                ));
+
+        String answer = service.renderForClient(service.answer("What is total revenue?", context, "Bearer token"));
+
+        assertThat(answer).contains("USD 72,127.03");
+        assertThat(answer).contains("1,721 completed session(s)");
+        assertThat(answer).contains("live analytics response");
+        assertThat(answer).doesNotContain("Admin should verify");
     }
 
     @Test

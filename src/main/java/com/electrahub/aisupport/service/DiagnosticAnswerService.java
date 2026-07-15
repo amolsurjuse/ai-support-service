@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
+import java.text.NumberFormat;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -392,6 +393,23 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer totalRevenueMetric(ContextPayload context) {
+        String revenue = contextAttribute(context, "totalRevenue");
+        if (!isBlank(revenue)) {
+            String currency = optionalContextAttribute(context, "currency", "USD");
+            String from = optionalContextAttribute(context, "from", "selected start");
+            String to = optionalContextAttribute(context, "to", "selected end");
+            String sessions = contextAttribute(context, "totalSessions");
+            String location = optionalContextAttribute(context, "filterLocationId", "all locations");
+            String formattedRevenue = formatMetric(revenue, 2);
+            String sessionLine = isBlank(sessions) ? "" : " It includes " + formatMetric(sessions, 0) + " completed session(s).";
+            return new DiagnosticAnswer(
+                    "explain_admin_total_revenue",
+                    "Total revenue for the current dashboard filter is " + currency + " " + formattedRevenue + ".\n\n"
+                            + "Period: " + from + " to " + to + ". Location filter: " + location + "." + sessionLine
+                            + "\n\nThis value comes from the live analytics response currently displayed on the dashboard.",
+                    "live dashboard analytics"
+            );
+        }
         return new DiagnosticAnswer(
                 "explain_admin_total_revenue",
                 """
@@ -403,6 +421,28 @@ public class DiagnosticAnswerService {
                         """.trim(),
                 contextSummary(context)
         );
+    }
+
+    private static String contextAttribute(ContextPayload context, String key) {
+        if (context == null || context.attributes() == null) return "";
+        String value = context.attributes().get(key);
+        return value == null ? "" : value.trim();
+    }
+
+    private static String optionalContextAttribute(ContextPayload context, String key, String fallback) {
+        String value = contextAttribute(context, key);
+        return isBlank(value) ? fallback : value;
+    }
+
+    private static String formatMetric(String value, int fractionDigits) {
+        try {
+            NumberFormat format = NumberFormat.getNumberInstance(Locale.US);
+            format.setMinimumFractionDigits(fractionDigits);
+            format.setMaximumFractionDigits(fractionDigits);
+            return format.format(Double.parseDouble(value));
+        } catch (NumberFormatException ignored) {
+            return value;
+        }
     }
 
     private DiagnosticAnswer alreadyActive(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
