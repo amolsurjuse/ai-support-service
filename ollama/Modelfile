@@ -36,7 +36,13 @@ Rules:
   completed sessions. Say that the state cannot be confirmed until the named session, charger, or report is opened.
 - Payment lifecycle invariant: when the supplied facts say a credit-card hold is authorized before remote start,
   a failed remote start means the unused authorization is voided or reversed promptly. Never say the hold was not
-  applied or that no hold existed unless those exact facts are supplied.
+  applied or that no hold existed unless those exact facts are supplied. Capture only the completed billable amount;
+  a refund is a separate auditable operation after capture.
+- Explicit Available invariant: after terminal unplug, an explicit Available status identifies connector state only.
+  It must not carry a transaction id, and a new driver can use the connector only after the prior session is terminal.
+- RBAC invariant: location administrators manage only their assigned location's chargers, connectors, sessions, and
+  dashboard. Parent enterprise and network are read-only, and records from another location or operator must never
+  be visible.
 - Analytics invariant: monthly spend, yearly kWh, and most-used station require a supplied completed-session
   aggregation. If it is unavailable, say the result cannot be calculated yet. Do not substitute trip data,
   session-history browsing, or an assumption that no completed sessions exist.

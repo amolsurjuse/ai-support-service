@@ -51,6 +51,8 @@ final class LlmPromptFormatter {
                         """);
         appendRequiredIdentifiers(builder, prompt);
         appendPaymentAuthorizationInvariant(builder, prompt);
+        appendExplicitAvailableInvariant(builder, prompt);
+        appendRbacScopeInvariant(builder, prompt);
         appendAnalyticsInvariant(builder, prompt);
         appendDashboardAttentionInvariant(builder, prompt);
         appendPastSessionInvariant(builder, prompt);
@@ -106,6 +108,35 @@ final class LlmPromptFormatter {
                 - The configured hold is authorized before remote start.
                 - If remote start or charger confirmation fails, say the unused authorization is voided or reversed promptly.
                 - Do not say the hold was never applied, was not placed, or did not exist.
+                - Capture only the final billable amount after a completed session; a refund is a separate audited operation after capture.
+                """);
+    }
+
+    private static void appendExplicitAvailableInvariant(StringBuilder builder, LlmClient.LlmPrompt prompt) {
+        if (prompt.deterministicAnswer() == null
+                || !"explain_explicit_available_status".equals(prompt.deterministicAnswer().toolName())) {
+            return;
+        }
+        builder.append("""
+
+                \nNon-negotiable explicit Available rule:
+                - After terminal unplug, explicit Available identifies connector status only and must not carry a transaction id.
+                - The prior session must already be terminal before a new driver can use the connector.
+                - Do not invent a current connector event when none was supplied.
+                """);
+    }
+
+    private static void appendRbacScopeInvariant(StringBuilder builder, LlmClient.LlmPrompt prompt) {
+        if (prompt.deterministicAnswer() == null
+                || !"explain_rbac_scope".equals(prompt.deterministicAnswer().toolName())) {
+            return;
+        }
+        builder.append("""
+
+                \nNon-negotiable RBAC scope rule:
+                - A location administrator manages only assigned location chargers, connectors, sessions, and dashboard data.
+                - Parent enterprise and network are read-only.
+                - Records from another location or operator must never be visible.
                 """);
     }
 

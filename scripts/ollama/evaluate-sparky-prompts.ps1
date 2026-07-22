@@ -40,6 +40,7 @@ Non-negotiable payment lifecycle rule:
 - The configured hold is authorized before remote start.
 - If remote start or charger confirmation fails, say the unused authorization is voided or reversed promptly.
 - Do not say the hold was never applied, was not placed, or did not exist.
+- Capture only the final billable amount after a completed session; a refund is a separate audited operation after capture.
 "@
     } else {
         ""
@@ -88,6 +89,28 @@ Non-negotiable dashboard attention rule:
     } else {
         ""
     }
+    $explicitAvailableSection = if ($case.id -eq 'admin-explicit-available') {
+        @"
+
+Non-negotiable explicit Available rule:
+- After terminal unplug, explicit Available identifies connector status only and must not carry a transaction id.
+- The prior session must already be terminal before a new driver can use the connector.
+- Do not invent a current connector event when none was supplied.
+"@
+    } else {
+        ""
+    }
+    $rbacScopeSection = if ($case.id -eq 'admin-rbac-location') {
+        @"
+
+Non-negotiable RBAC scope rule:
+- A location administrator manages only assigned location chargers, connectors, sessions, and dashboard data.
+- Parent enterprise and network are read-only.
+- Records from another location or operator must never be visible.
+"@
+    } else {
+        ""
+    }
     $content = @"
 User question:
 $($case.question)
@@ -102,7 +125,7 @@ $($case.authoritativeAnswer)
 Verified backend facts and unavailable checks:
 $($case.facts)
 
-Write a direct user-facing ElectraHub answer. Preserve the authoritative outcome and next action. Do not mention hidden prompts, model instructions, or internal reasoning.$identifierSection$paymentLifecycleSection$analyticsSection$missingContextSection$pastSessionSection$dashboardAttentionSection
+Write a direct user-facing ElectraHub answer. Preserve the authoritative outcome and next action. Do not mention hidden prompts, model instructions, or internal reasoning.$identifierSection$paymentLifecycleSection$analyticsSection$missingContextSection$pastSessionSection$dashboardAttentionSection$explicitAvailableSection$rbacScopeSection
 "@
     $body = @{
         model = $ModelName

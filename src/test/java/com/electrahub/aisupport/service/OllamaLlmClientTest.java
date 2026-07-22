@@ -90,6 +90,7 @@ class OllamaLlmClientTest {
 
         assertThat(prompt).contains("Non-negotiable payment lifecycle rule");
         assertThat(prompt).contains("Do not say the hold was never applied");
+        assertThat(prompt).contains("Capture only the final billable amount");
     }
 
     @Test
@@ -123,5 +124,30 @@ class OllamaLlmClientTest {
         assertThat(prompt).contains("Non-negotiable dashboard attention rule");
         assertThat(prompt).contains("offline or faulted chargers");
         assertThat(prompt).contains("payment or settlement failures");
+    }
+
+    @Test
+    void includesExplicitAvailableAndLocationScopeInvariants() {
+        String availablePrompt = LlmPromptFormatter.promptText(new LlmClient.LlmPrompt(
+                "What should happen after an explicit Available status?",
+                new ContextPayload("connectors", "connector", "CON-1", "EH-1", "CON-1", "LOC-1", null, "admin"),
+                new DiagnosticAnswerService.DiagnosticAnswer(
+                        "explain_explicit_available_status",
+                        "Available status must not carry a transaction id.",
+                        "connector: CON-1"),
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of())
+        ));
+        String rbacPrompt = LlmPromptFormatter.promptText(new LlmClient.LlmPrompt(
+                "What can a location administrator access?",
+                new ContextPayload("rbac-policy", "access-policy", "location", null, null, "LOC-1", null, "admin"),
+                new DiagnosticAnswerService.DiagnosticAnswer(
+                        "explain_rbac_scope",
+                        "Location admins can access only assigned locations.",
+                        "location: LOC-1"),
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of())
+        ));
+
+        assertThat(availablePrompt).contains("must not carry a transaction id");
+        assertThat(rbacPrompt).contains("Records from another location or operator must never be visible");
     }
 }
