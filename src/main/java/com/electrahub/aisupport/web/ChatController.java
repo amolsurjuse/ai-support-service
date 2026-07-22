@@ -30,13 +30,23 @@ class ChatController {
     @ResponseStatus(HttpStatus.CREATED)
     SendMessageResponse sendMessage(@Valid @RequestBody SendMessageRequest request, HttpServletRequest servletRequest) {
         var pending = threadStore.create(request.threadId(), request.content(), request.context());
+        long startedNanos = System.nanoTime();
         var answer = answerService.answer(request.content(), request.context(), servletRequest.getHeader("Authorization"));
+        int latencyMs = (int) Math.min(Integer.MAX_VALUE, (System.nanoTime() - startedNanos) / 1_000_000L);
+        var completed = threadStore.complete(
+                        pending.messageId(),
+                        new ChatThreadStore.CompletedAnswer(
+                                answerService.renderForClient(answer),
+                                answer.toolName(),
+                                answer.contextSummary(),
+                                latencyMs))
+                .orElseThrow(() -> new IllegalStateException("Chat message expired before its answer was stored"));
         return new SendMessageResponse(
                 pending.threadId(),
                 pending.messageId(),
-                answerService.renderForClient(answer),
-                answer.toolName(),
-                answer.contextSummary()
+                completed.answer().text(),
+                completed.answer().tool(),
+                completed.answer().contextSummary()
         );
     }
 }

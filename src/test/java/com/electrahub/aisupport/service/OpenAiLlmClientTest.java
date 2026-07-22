@@ -40,6 +40,8 @@ class OpenAiLlmClientTest {
                     "http://charger-management-service:8086",
                     "http://ocpp-service:8082",
                     100,
+                    250,
+                    900_000,
                     "test-key",
                     "http://localhost:" + server.getAddress().getPort(),
                     "http://ollama:11434",

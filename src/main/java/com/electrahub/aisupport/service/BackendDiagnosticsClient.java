@@ -3,6 +3,8 @@ package com.electrahub.aisupport.service;
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 
+import jakarta.annotation.PreDestroy;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Service
 public class BackendDiagnosticsClient {
@@ -34,6 +41,7 @@ public class BackendDiagnosticsClient {
     private final AiSupportProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final ExecutorService diagnosticsExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public BackendDiagnosticsClient(AiSupportProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
@@ -47,16 +55,61 @@ public class BackendDiagnosticsClient {
         ContextPayload safeContext = context == null
                 ? new ContextPayload(null, null, null, null, null, null, null, "driver")
                 : context;
+        List<NamedDiagnosticTask> tasks = List.of(
+                task("payment", (facts, gaps) -> readPaymentState(authorization, facts, gaps)),
+                task("session", (facts, gaps) -> readSessionState(safeContext, authorization, facts, gaps)),
+                task("charger", (facts, gaps) -> readChargerState(safeContext, facts, gaps)),
+                task("ocpp connection", (facts, gaps) -> readOcppConnection(safeContext, facts, gaps)),
+                task("ocpp history", (facts, gaps) -> readOcppHistory(safeContext, facts, gaps))
+        );
+
+        boolean timedOut = false;
+        try {
+            CompletableFuture.allOf(tasks.stream().map(NamedDiagnosticTask::future).toArray(CompletableFuture[]::new))
+                    .get(Math.max(250, properties.diagnosticsTotalTimeoutMs()), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ignored) {
+            timedOut = true;
+            log.info("Sparky diagnostics reached total timeoutMs={}", properties.diagnosticsTotalTimeoutMs());
+        } catch (Exception ex) {
+            log.warn("Sparky diagnostics completed with an execution error type={}", ex.getClass().getSimpleName());
+        }
+
         List<String> facts = new ArrayList<>();
         List<String> gaps = new ArrayList<>();
-
-        readPaymentState(authorization, facts, gaps);
-        readSessionState(safeContext, authorization, facts, gaps);
-        readChargerState(safeContext, facts, gaps);
-        readOcppConnection(safeContext, facts, gaps);
-        readOcppHistory(safeContext, facts, gaps);
+        for (NamedDiagnosticTask task : tasks) {
+            DiagnosticSection section = task.future().getNow(null);
+            if (section != null) {
+                facts.addAll(section.facts());
+                gaps.addAll(section.gaps());
+            } else {
+                task.future().cancel(true);
+                gaps.add(task.name() + " diagnostics did not complete before the response deadline");
+            }
+        }
+        if (timedOut) {
+            gaps.add("some live diagnostics exceeded the response deadline");
+        }
 
         return new DiagnosticsSnapshot(List.copyOf(facts), List.copyOf(gaps));
+    }
+
+    @PreDestroy
+    void stopDiagnosticsExecutor() {
+        diagnosticsExecutor.close();
+    }
+
+    private NamedDiagnosticTask task(String name, DiagnosticReader reader) {
+        return new NamedDiagnosticTask(name, CompletableFuture.supplyAsync(() -> {
+            List<String> facts = new ArrayList<>();
+            List<String> gaps = new ArrayList<>();
+            try {
+                reader.collect(facts, gaps);
+            } catch (RuntimeException ex) {
+                log.warn("Sparky {} diagnostic failed type={}", name, ex.getClass().getSimpleName());
+                gaps.add(name + " diagnostics failed");
+            }
+            return new DiagnosticSection(List.copyOf(facts), List.copyOf(gaps));
+        }, diagnosticsExecutor));
     }
 
     public ChargerAlternatives findChargerAlternatives(ContextPayload context, String userMessage, int limit) {
@@ -611,6 +664,17 @@ public class BackendDiagnosticsClient {
             }
             return builder.toString().trim();
         }
+    }
+
+    @FunctionalInterface
+    private interface DiagnosticReader {
+        void collect(List<String> facts, List<String> gaps);
+    }
+
+    private record NamedDiagnosticTask(String name, CompletableFuture<DiagnosticSection> future) {
+    }
+
+    private record DiagnosticSection(List<String> facts, List<String> gaps) {
     }
 
     private record ReferencePoint(String locationLabel, Double latitude, Double longitude) {

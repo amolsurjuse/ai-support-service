@@ -1,13 +1,14 @@
 # AI Support Service
 
-ElectraHub AI support assistant for driver-facing iOS chat and internal CSR diagnostics.
+ElectraHub Sparky support assistant for driver-facing iOS/Android chat and admin/CSR diagnostics.
 
 ## Current scope
 
 - `POST /api/v1/chat/messages` creates or continues a chat thread.
 - `GET /api/v1/chat/threads/{threadId}/stream?since={messageId}` streams an iOS-compatible SSE response.
 - Driver mode is safe by default and does not expose engineer-only internals.
-- The first implementation uses deterministic diagnostics so iOS can integrate before the LLM and live support tools are enabled.
+- Every message is evaluated once, cached for the short-lived SSE stream, and rendered consistently across iOS, Android, and the admin portal.
+- Deterministic diagnostics remain the source of truth; the LLM improves clarity only after a grounding and safety quality check.
 
 ## Driver support contract
 
@@ -62,7 +63,7 @@ AI_MAX_OUTPUT_TOKENS=900
 AI_LLM_TIMEOUT_MS=12000
 ```
 
-The service sends only the redacted user message, screen/context identifiers, deterministic fallback answer, and summarized live backend facts to the LLM. It never sends bearer tokens or raw secrets to the provider. If OpenAI is disabled, unreachable, or returns no usable text, Sparky returns the deterministic diagnostic answer.
+The service sends only the redacted user message, screen/context identifiers, deterministic fallback answer, and summarized live backend facts to the LLM. It never sends bearer tokens or raw secrets to the provider. If the provider is disabled, unreachable, too slow, or returns an unsafe/unhelpful response, Sparky returns the deterministic diagnostic answer.
 
 ## Ollama provider mode
 
@@ -75,10 +76,12 @@ The project tuning is intentionally grounded instead of open-ended fine-tuning:
 - Live backend diagnostics remain the source of truth for current charger, wallet, payment, receipt, and session state.
 - If Ollama is unavailable or too slow, deterministic diagnostics are returned as the safe fallback.
 
+The current production model is `qwen3:8b`, exposed as `electrahub-sparky:8b`. Sparky disables the model's exposed reasoning mode for predictable driver-facing latency and strips/rejects reasoning or prompt leakage before an answer can reach a client.
+
 Create the local model:
 
 ```powershell
-.\scripts\ollama\create-electrahub-sparky.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\ollama\create-electrahub-sparky.ps1
 ```
 
 Run the service against Ollama:
@@ -87,12 +90,23 @@ Run the service against Ollama:
 AI_PROVIDER_ENABLED=true
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-AI_MODEL=electrahub-sparky
-AI_TEMPERATURE=0.2
-AI_MAX_OUTPUT_TOKENS=900
-AI_LLM_TIMEOUT_MS=12000
+AI_MODEL=electrahub-sparky:8b
+AI_TEMPERATURE=0.12
+AI_MAX_OUTPUT_TOKENS=320
+AI_LLM_TIMEOUT_MS=30000
+AI_DIAGNOSTICS_TIMEOUT_MS=1800
+AI_DIAGNOSTICS_TOTAL_TIMEOUT_MS=3000
+AI_THREAD_TTL_MS=900000
 ```
 
-For Kubernetes, deploy an Ollama service reachable from `ai-support-service`, then set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL=http://ollama:11434`, and `AI_MODEL=electrahub-sparky`. The deterministic diagnostics remain the fallback if Ollama is unreachable or returns no usable answer.
+Run the real-model quality suite after creating the model:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\ollama\evaluate-sparky-prompts.ps1 -FailOnQualityIssue
+```
+
+The suite covers every current iOS/admin suggested prompt plus critical simulator RFID, Plug and Charge, card-present, idle/unplug, and payment-authorisation scenarios. It checks that answers preserve required operational meaning and do not expose prompt content or hidden reasoning.
+
+For Kubernetes, make the Ollama host reachable from `ai-support-service`, then set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, and `AI_MODEL=electrahub-sparky:8b`. The deterministic diagnostics remain the fallback if Ollama is unreachable or returns no usable answer.
 
 `POST /api/v1/chat/messages` returns a normalized final answer for all clients. `GET /api/v1/chat/threads/{threadId}/stream?since={messageId}` streams the same rendered answer over SSE.

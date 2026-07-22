@@ -1,5 +1,6 @@
 param(
-    [string]$ModelName = "electrahub-sparky",
+    [string]$ModelName = "electrahub-sparky:8b",
+    [string]$BaseModel = "qwen3:8b",
     [string]$Modelfile = "$PSScriptRoot\..\..\ollama\Modelfile"
 )
 
@@ -9,6 +10,10 @@ if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
     throw "Ollama CLI was not found. Install Ollama first, then rerun this script."
 }
 
-ollama pull llama3.1:8b
+if (-not (Test-Path -LiteralPath $Modelfile)) {
+    throw "Sparky Modelfile was not found: $Modelfile"
+}
+
+ollama pull $BaseModel
 ollama create $ModelName -f $Modelfile
 ollama show $ModelName

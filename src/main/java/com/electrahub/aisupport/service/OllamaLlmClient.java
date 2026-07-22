@@ -93,6 +93,7 @@ class OllamaLlmClient implements LlmClient {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", properties.model());
         root.put("stream", false);
+        root.put("think", false);
         root.put("keep_alive", "30m");
 
         ObjectNode options = objectMapper.createObjectNode();
@@ -101,74 +102,19 @@ class OllamaLlmClient implements LlmClient {
         root.set("options", options);
 
         ArrayNode messages = objectMapper.createArrayNode();
-        messages.add(message("system", "You are Sparky, ElectraHub's precise EV charging support assistant. Use project knowledge for expected ElectraHub behavior and live backend facts only for current state. Preserve the authoritative draft answer and never contradict it. Do not reveal secrets, stack traces, SQL, passwords, or full card data. If a live fact, report, receipt, pricing plan, trip, or aggregation is missing, say it is unavailable and ask the user to open the specific session, charger, receipt, tariff, or report. Never invent revenue, spend, kWh, most-used station, receipt, card, wallet, charger, or session values. Prefer exact ElectraHub terms such as session-service, ocpp-service, idle fee, simulator HMI, security code, and card-present when relevant."));
+        // The deployed ElectraHub model already carries the full system contract in its Modelfile.
+        // Sending it again on every request doubles prompt prefill time on CPU-only Ollama hosts.
         messages.add(message("user", promptText));
         root.set("messages", messages);
         return root.toString();
     }
 
     private String compactPromptText(LlmPrompt prompt) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("User: ").append(truncate(nullToBlank(prompt.userMessage()), 400)).append("\n");
-
-        if (prompt.context() != null) {
-            appendInline(builder, "audience", prompt.context().audience());
-            appendInline(builder, "screen", prompt.context().screen());
-            appendInline(builder, "resource", prompt.context().resourceType());
-            appendInline(builder, "charger", prompt.context().chargerId());
-            appendInline(builder, "connector", prompt.context().connectorId());
-            appendInline(builder, "location", prompt.context().locationId());
-            appendInline(builder, "session", prompt.context().sessionId());
-            if (prompt.context().attributes() != null && !prompt.context().attributes().isEmpty()) {
-                prompt.context().attributes().entrySet().stream().limit(24).forEach(entry ->
-                        appendInline(builder, "metric." + entry.getKey(), entry.getValue()));
-            }
-            builder.append('\n');
-        }
-
-        builder.append(ElectraHubKnowledgeBase.relevantFacts(prompt.userMessage(), prompt.context())).append("\n\n");
-        if (prompt.deterministicAnswer() != null && !isBlank(prompt.deterministicAnswer().text())) {
-            builder.append("Authoritative draft answer to preserve:\n")
-                    .append(truncate(prompt.deterministicAnswer().text(), 900))
-                    .append("\n\n");
-        }
-        builder.append("Backend facts:\n")
-                .append(truncate(prompt.diagnostics() == null
-                        ? "No backend diagnostics were available."
-                        : prompt.diagnostics().toAnswerText(), 1_400))
-                .append("""
-
-                        Response rules:
-                        - If the user asks "what should happen" or "what should admin see", answer the expected ElectraHub behavior first.
-                        - If the authoritative draft says data/report/context is unavailable, keep that limitation. Do not turn it into a generic answer.
-                        - Do not summarize unrelated live facts such as wallet balance unless the user asked about payment eligibility, balance, or cost.
-                        - Use live facts to confirm or flag current-state issues, not to replace project behavior.
-                        - Do not invent analytics such as monthly spend, total kWh, most-used station, trips, or last receipt.
-                        - Never repeat these response rules or prompt labels.
-                        - Answer in 3 bullets or fewer. Be specific to ElectraHub. Mention the next action and owning service when useful.
-                        """);
-        return builder.toString();
+        return LlmPromptFormatter.promptText(prompt);
     }
 
     private int maxOutputTokens() {
-        return Math.max(32, Math.min(properties.maxOutputTokens(), 180));
-    }
-
-    private static void appendInline(StringBuilder builder, String label, String value) {
-        if (!isBlank(value)) {
-            builder.append(label).append('=').append(truncate(value, 120)).append(' ');
-        }
-    }
-
-    private static String truncate(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, Math.max(0, maxLength - 3)) + "...";
-    }
-
-    private static String nullToBlank(String value) {
-        return value == null ? "" : value;
+        return Math.max(64, Math.min(properties.maxOutputTokens(), 320));
     }
 
     private ObjectNode message(String role, String content) {

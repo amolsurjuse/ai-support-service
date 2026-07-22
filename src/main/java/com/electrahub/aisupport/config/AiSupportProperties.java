@@ -13,6 +13,8 @@ public record AiSupportProperties(
         String chargerServiceUrl,
         String ocppServiceUrl,
         int diagnosticsTimeoutMs,
+        int diagnosticsTotalTimeoutMs,
+        long threadTtlMs,
         String openaiApiKey,
         String openaiBaseUrl,
         String ollamaBaseUrl,

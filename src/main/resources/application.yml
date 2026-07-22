@@ -26,10 +26,12 @@ electrahub:
     charger-service-url: ${CHARGER_SERVICE_URL:http://charger-management-service:8086}
     ocpp-service-url: ${OCPP_SERVICE_URL:http://ocpp-service:8082}
     diagnostics-timeout-ms: ${AI_DIAGNOSTICS_TIMEOUT_MS:1800}
+    diagnostics-total-timeout-ms: ${AI_DIAGNOSTICS_TOTAL_TIMEOUT_MS:2400}
+    thread-ttl-ms: ${AI_THREAD_TTL_MS:900000}
     openai-api-key: ${OPENAI_API_KEY:}
     openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com}
     ollama-base-url: ${OLLAMA_BASE_URL:http://ollama:11434}
     model: ${AI_MODEL:gpt-4.1-mini}
-    temperature: ${AI_TEMPERATURE:0.2}
-    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:900}
+    temperature: ${AI_TEMPERATURE:0.12}
+    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:320}
     llm-timeout-ms: ${AI_LLM_TIMEOUT_MS:12000}

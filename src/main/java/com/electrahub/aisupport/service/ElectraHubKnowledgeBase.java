@@ -42,6 +42,30 @@ final class ElectraHubKnowledgeBase {
                     "Tap-credit-card/card-present sessions can be anonymous because the user may not be recognized. Show payment as Credit Card with a masked card number when available; for ElectraHub-authorized card-present flows show the ElectraHub payment authorization id instead of raw processor transaction ids.",
                     "card present", "credit card", "tap credit", "payment method", "masked", "anonymous", "transaction id"),
             new KnowledgeRule(
+                    "RFID and Plug and Charge authorization",
+                    "A simulator RFID tap must first be authorized. An unknown RFID must be rejected and must not create a transaction or charging session. Plug and Charge must validate the EMAID/contract certificate before authorization; an invalid or untrusted certificate must be rejected without starting a session.",
+                    "rfid", "tag", "authorize", "authorization", "unknown", "pnc", "plug and charge", "emaid", "certificate", "contract certificate"),
+            new KnowledgeRule(
+                    "credit card authorization and reversal",
+                    "For account-linked credit-card charging, authorize the configured hold before remote start. If remote start or the charger confirmation fails, reverse or void the unused authorization promptly. On normal completion, capture only the final billable amount and release any unused hold. A refund is a separate, auditable operation after a completed capture.",
+                    "authorization hold", "preauth", "pre-authorization", "void", "reversal", "refund", "capture", "credit card", "remote start"),
+            new KnowledgeRule(
+                    "real-time cost and caps",
+                    "The backend is the source of truth for real-time energy cost, time cost, session fee, taxes, subscription discount, idle fee, session cap, and idle-fee cap. Clients must display the values returned by the active-session or receipt API and must not recompute billing logic locally.",
+                    "real time cost", "cost", "cap", "idle cap", "session cap", "tax", "session fee", "billing", "calculation"),
+            new KnowledgeRule(
+                    "notifications",
+                    "Charging notifications must be event-deduplicated by session and notification type. Idle and battery-full alerts are valid only after the backend confirms the matching idle or battery state; repeated OCPP or SSE events must not create duplicate notifications.",
+                    "notification", "push", "idle notification", "battery full", "duplicate", "repeated", "alert"),
+            new KnowledgeRule(
+                    "administrative data scope",
+                    "Administrative access is scoped by role and assigned network, enterprise, and location. A location administrator can operate only assigned locations and their chargers/sessions; a network or enterprise administrator cannot see another operator's data. System administrators alone manage global users and system payment configuration.",
+                    "rbac", "role", "admin", "network", "enterprise", "location", "access", "permission", "forbidden"),
+            new KnowledgeRule(
+                    "guest driver access",
+                    "Guests can browse chargers, locations, connector status, pricing, and directions. Starting a session, wallet/payment management, favorites, recently used chargers, receipts, and account-specific notifications require a signed-in driver.",
+                    "guest", "login", "sign in", "register", "map", "favorite", "recent", "start charging"),
+            new KnowledgeRule(
                     "admin charging sessions",
                     "Admin portal charging sessions should support active and completed tabs, filters by location/charger/driver/payment/auth method, receipt view for completed sessions, and remote stop for active sessions.",
                     "admin", "session tab", "charging sessions", "filter", "receipt", "remote stop"),
@@ -54,6 +78,10 @@ final class ElectraHubKnowledgeBase {
     }
 
     static String relevantFacts(String userMessage, ContextPayload context) {
+        return relevantFacts(userMessage, context, 4);
+    }
+
+    static String relevantFacts(String userMessage, ContextPayload context, int limit) {
         String haystack = (nullToBlank(userMessage) + " "
                 + nullToBlank(context == null ? null : context.screen()) + " "
                 + nullToBlank(context == null ? null : context.resourceType()) + " "
@@ -63,7 +91,7 @@ final class ElectraHubKnowledgeBase {
                 .map(rule -> new ScoredRule(rule, rule.score(haystack)))
                 .filter(rule -> rule.score() > 0)
                 .sorted(Comparator.comparingInt(ScoredRule::score).reversed())
-                .limit(4)
+                .limit(Math.max(1, limit))
                 .map(rule -> rule.rule().fact())
                 .toList());
         if (facts.isEmpty()) {

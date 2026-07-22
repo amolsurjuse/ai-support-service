@@ -3,14 +3,11 @@ package com.electrahub.aisupport.web;
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.StreamEvent;
 import com.electrahub.aisupport.service.ChatThreadStore;
-import com.electrahub.aisupport.service.DiagnosticAnswerService;
 
 import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,42 +21,38 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/v1/chat")
 class ChatStreamController {
     private final ChatThreadStore threadStore;
-    private final DiagnosticAnswerService answerService;
     private final AiSupportProperties properties;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    ChatStreamController(ChatThreadStore threadStore, DiagnosticAnswerService answerService, AiSupportProperties properties) {
+    ChatStreamController(ChatThreadStore threadStore, AiSupportProperties properties) {
         this.threadStore = threadStore;
-        this.answerService = answerService;
         this.properties = properties;
     }
 
     @GetMapping(path = "/threads/{threadId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter stream(@PathVariable UUID threadId,
-                      @RequestParam(name = "since") UUID messageId,
-                      HttpServletRequest request) {
+                      @RequestParam(name = "since") UUID messageId) {
         SseEmitter emitter = new SseEmitter(60_000L);
-        String authorization = request.getHeader("Authorization");
-        executor.submit(() -> streamAnswer(threadId, messageId, authorization, emitter));
+        executor.submit(() -> streamAnswer(threadId, messageId, emitter));
         return emitter;
     }
 
-    private void streamAnswer(UUID threadId, UUID messageId, String authorization, SseEmitter emitter) {
+    private void streamAnswer(UUID threadId, UUID messageId, SseEmitter emitter) {
         try {
             var pending = threadStore.find(messageId)
-                    .filter(message -> message.threadId().equals(threadId))
+                    .filter(message -> message.pending().threadId().equals(threadId))
                     .orElse(null);
-            if (pending == null) {
+            if (pending == null || pending.answer() == null) {
                 send(emitter, "error", StreamEvent.error(messageId, "MESSAGE_NOT_FOUND", "I could not find that chat message. Please send it again."));
                 emitter.complete();
                 return;
             }
 
-            var answer = answerService.answer(pending.content(), pending.context(), authorization);
-            send(emitter, "tool_call", StreamEvent.toolCall(messageId, answer.toolName()));
-            send(emitter, "tool_result", StreamEvent.toolResult(messageId, answer.toolName(), true, 1));
+            var answer = pending.answer();
+            send(emitter, "tool_call", StreamEvent.toolCall(messageId, answer.tool()));
+            send(emitter, "tool_result", StreamEvent.toolResult(messageId, answer.tool(), true, answer.latencyMs()));
 
-            streamText(messageId, answerService.renderForClient(answer), emitter);
+            streamText(messageId, answer.text(), emitter);
             send(emitter, "done", StreamEvent.done(messageId));
             emitter.complete();
         } catch (Exception ex) {

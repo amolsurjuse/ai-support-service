@@ -5,6 +5,7 @@ import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
@@ -26,15 +27,26 @@ public class DiagnosticAnswerService {
     private final PiiRedactor redactor;
     private final BackendDiagnosticsClient diagnosticsClient;
     private final LlmClient llmClient;
+    private final SparkyAnswerQualityGuard qualityGuard;
 
+    @Autowired
     DiagnosticAnswerService(AiSupportProperties properties,
                             PiiRedactor redactor,
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient) {
+        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard());
+    }
+
+    DiagnosticAnswerService(AiSupportProperties properties,
+                            PiiRedactor redactor,
+                            BackendDiagnosticsClient diagnosticsClient,
+                            LlmClient llmClient,
+                            SparkyAnswerQualityGuard qualityGuard) {
         this.properties = properties;
         this.redactor = redactor;
         this.diagnosticsClient = diagnosticsClient;
         this.llmClient = llmClient;
+        this.qualityGuard = qualityGuard;
     }
 
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
@@ -45,14 +57,46 @@ public class DiagnosticAnswerService {
         DiagnosticAnswer fallback;
         if (isRevenueDashboardQuestion(message, safeContext)) {
             fallback = totalRevenueMetric(safeContext);
+        } else if (isDashboardAttentionQuestion(message, safeContext)) {
+            fallback = dashboardAttention(safeContext);
+        } else if (isChargingSuccessQuestion(message, safeContext)) {
+            fallback = chargingSuccessMonitoring(safeContext);
         } else if (isChargerAvailabilityQuestion(message)) {
             fallback = chargerAvailability(safeContext, diagnostics);
         } else if (isRemoteStopIdleQuestion(message)) {
             fallback = remoteStopIdleFee(safeContext, diagnostics);
+        } else if (isRemoteStopPreparationQuestion(message)) {
+            fallback = remoteStopPreparation(safeContext);
         } else if (message.contains("simulator") && containsAny(message, "security code", "unplug", "mobile app", "link")) {
             fallback = simulatorSecureUnplug(safeContext, diagnostics);
         } else if (isCardPresentQuestion(message)) {
             fallback = cardPresentAdminView(safeContext, diagnostics);
+        } else if (isPastSessionDiagnosisQuestion(message)) {
+            fallback = pastSessionDiagnosis(safeContext);
+        } else if (isRfidAuthorizationQuestion(message)) {
+            fallback = rfidAuthorization(safeContext);
+        } else if (isPlugAndChargeQuestion(message)) {
+            fallback = plugAndChargeAuthorization(safeContext);
+        } else if (isPaymentAuthorizationQuestion(message)) {
+            fallback = paymentAuthorization(safeContext);
+        } else if (isExplicitAvailableQuestion(message)) {
+            fallback = explicitAvailableStatus(safeContext);
+        } else if (isChargerStatusManagementQuestion(message)) {
+            fallback = chargerStatusManagement(safeContext);
+        } else if (isFeeCapQuestion(message)) {
+            fallback = pricingCaps(safeContext);
+        } else if (isReceiptCostConsistencyQuestion(message)) {
+            fallback = receiptCostConsistency(safeContext);
+        } else if (isRealTimeCostQuestion(message)) {
+            fallback = realTimeCost(safeContext);
+        } else if (isSubscriptionQuestion(message)) {
+            fallback = subscriptionLifecycle(message, safeContext);
+        } else if (isChargingNotificationQuestion(message)) {
+            fallback = chargingNotifications(safeContext);
+        } else if (isNotificationLifecycleQuestion(message)) {
+            fallback = notificationLifecycle(message, safeContext);
+        } else if (isRbacQuestion(message)) {
+            fallback = rbacScope(safeContext);
         } else if (isStartFailureQuestion(message)) {
             fallback = chargingUnavailable(safeContext, diagnostics);
         } else if (isLastReceiptQuestion(message)) {
@@ -84,10 +128,6 @@ public class DiagnosticAnswerService {
                                                  ContextPayload context,
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
                                                  DiagnosticAnswer fallback) {
-        if (requiresExactProjectAnswer(fallback.toolName())) {
-            log.info("Sparky using deterministic fallback reason=exact_project_flow tool={}", fallback.toolName());
-            return fallback;
-        }
         if (!llmClient.available()) {
             log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
                     fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
@@ -104,14 +144,16 @@ public class DiagnosticAnswerService {
                     completion.provider(), completion.model(), fallback.toolName(), completion.error());
             return fallback;
         }
-        if (looksLikePromptLeak(completion.answer())) {
-            log.warn("Sparky using deterministic fallback reason=llm_prompt_leak provider={} model={} tool={}",
-                    completion.provider(), completion.model(), fallback.toolName());
+        SparkyAnswerQualityGuard.Evaluation evaluation = qualityGuard.evaluate(
+                completion.answer(), fallback, userMessage, context);
+        if (!evaluation.accepted()) {
+            log.warn("Sparky using deterministic fallback reason=llm_quality_guard provider={} model={} tool={} rejection={}",
+                    completion.provider(), completion.model(), fallback.toolName(), evaluation.reason());
             return fallback;
         }
         log.info("Sparky using LLM answer provider={} model={} tool={} answerChars={}",
-                completion.provider(), completion.model(), fallback.toolName(), completion.answer().length());
-        return new DiagnosticAnswer(fallback.toolName(), completion.answer(), fallback.contextSummary());
+                completion.provider(), completion.model(), fallback.toolName(), evaluation.answer().length());
+        return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
     }
 
     public String renderForClient(DiagnosticAnswer answer) {
@@ -166,6 +208,182 @@ public class DiagnosticAnswerService {
         return new DiagnosticAnswer(
                 "explain_receipt_lookup",
                 enrich(base, diagnostics),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer pastSessionDiagnosis(ContextPayload context) {
+        if (context != null && !isBlank(context.sessionId())) {
+            return new DiagnosticAnswer(
+                    "diagnose_past_session",
+                    """
+                            I can investigate the selected charging session %s. The diagnosis should use its session state, stop reason, charger and connector events, meter progression, and completed receipt.
+
+                            If those session details are not yet available, refresh the selected history entry and try again. Do not infer a failure cause from missing diagnostics alone.
+                            """.formatted(context.sessionId()).trim(),
+                    contextSummary(context)
+            );
+        }
+        return new DiagnosticAnswer(
+                "diagnose_past_session",
+                """
+                        I cannot diagnose why a past charging session failed without the selected session. Missing session context is not itself the reason for the failure.
+
+                        Open the charging history entry, then Sparky can check the charger, connector, session state, stop reason, and receipt for that specific session.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer dashboardAttention(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_dashboard_attention",
+                """
+                        Review the scoped dashboard for active sessions that are idle or stuck, failed starts, offline or faulted chargers, payment/settlement failures, and unread operational notifications.
+
+                        Do not claim that a specific issue needs attention without the current dashboard facts. Open the affected session or charger to investigate it using the same date and access scope as the dashboard.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer chargingSuccessMonitoring(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_charging_success_monitoring",
+                """
+                        Monitor charging success rate from eligible charging attempts through terminal settlement, alongside failed-start reasons, charger availability, command latency, and sessions that remain idle or incomplete.
+
+                        Manual driver cancellations and failures caused by a driver's own card must be classified separately rather than counted as charger-platform failures. Results must use the current admin access scope and date filter.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer remoteStopPreparation(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "prepare_remote_stop",
+                """
+                        Before remotely stopping an active session, confirm the selected session and connector, its current charging state, and whether idle fees are enabled.
+
+                        Remote stop pauses charging. If idle fees are enabled, the session remains idle until unplug and the receipt waits for terminal settlement. If idle fees are not enabled, receipt generation can proceed after the charger confirms the terminal event.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer chargerStatusManagement(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "manage_charger_status",
+                """
+                        Before changing charger status, confirm the selected charger and connector, any active or reserved session, the last OCPP heartbeat, and the expected driver impact.
+
+                        Marking a charger Inoperative must prevent new sessions and should be used for maintenance. Return it to service only after the charger reports a healthy status notification and recent heartbeat; never use the admin action to mask an unresolved charger fault.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer explicitAvailableStatus(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_explicit_available_status",
+                """
+                        After an unplug completes a session, the connector may emit an explicit Available status notification. That Available event identifies the connector and status; it must not include a transaction id.
+
+                        The session must already have reached its terminal state before the connector is treated as available for a new driver.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer pricingCaps(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_pricing_caps",
+                """
+                        Session and idle-fee caps are enforced by the backend pricing flow, not by the mobile or admin UI. The session cap limits billable charging cost, and the idle-fee cap limits accumulated idle charges after charging pauses.
+
+                        The active-session estimate and final receipt must use the configured tariff, taxes, discounts, and the same caps. The receipt should list charging and idle amounts separately.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer receiptCostConsistency(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_receipt_cost_consistency",
+                """
+                        The active-session cost is a backend-provided estimate. The completed receipt is the final billable record and must reconcile energy, time, session fee, taxes, subscription discount, idle fee, and configured caps.
+
+                        If the values differ, investigate the selected session's meter timestamps, tariff snapshot, tax/discount application, idle duration, and terminal settlement event. Do not calculate or correct the total in the UI.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer subscriptionLifecycle(String message, ContextPayload context) {
+        if (containsAny(message, "discount not applied", "discount", "not applied")) {
+            return new DiagnosticAnswer(
+                    "explain_subscription_discount",
+                    """
+                            A subscription discount is applied by the backend only when the plan is active, its scope matches the selected network/location/tariff, and usable quota remains.
+
+                            Check the selected session's subscription allocation, eligible energy, remaining quota, and receipt discount line. An ACTIVE plan with zero remaining quota is active administratively but cannot discount new energy.
+                            """.trim(),
+                    contextSummary(context)
+            );
+        }
+        if (containsAny(message, "quota exhausted", "exhausted")) {
+            return new DiagnosticAnswer(
+                    "explain_subscription_exhaustion",
+                    """
+                            When subscription quota is exhausted, later eligible energy is charged at the normal applicable tariff. The plan can remain ACTIVE for its validity period while its remaining quota is zero.
+
+                            The receipt must show covered versus uncovered energy and any discount actually applied. Do not show a discount for energy after quota exhaustion.
+                            """.trim(),
+                    contextSummary(context)
+            );
+        }
+        return new DiagnosticAnswer(
+                "explain_subscription_quota",
+                """
+                        Subscription quota is consumed by eligible energy under the plan's configured scope. The backend records covered and uncovered energy atomically so the receipt and remaining quota stay consistent.
+
+                        Check the plan allocation, scope, remaining quota, and the selected receipt before changing a subscription configuration.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer notificationLifecycle(String message, ContextPayload context) {
+        if (containsAny(message, "push delivery", "delivery fails", "push fail")) {
+            return new DiagnosticAnswer(
+                    "explain_push_delivery_failure",
+                    """
+                            A push-delivery failure must not discard the notification record. The backend should retain its delivery state, retry transient Firebase failures with backoff, and move permanently failed deliveries to an auditable dead-letter or failed state.
+
+                            Check device registration, Firebase project credentials, quota, and the notification dispatch result. The in-app notification can still be shown when push delivery fails.
+                            """.trim(),
+                    contextSummary(context)
+            );
+        }
+        return new DiagnosticAnswer(
+                "explain_notification_generation",
+                """
+                        A notification is generated only after the backend confirms the matching domain event and recipient. Open the notification record to see its event type, session or account reference, timestamp, and delivery state.
+
+                        The app must not create a notification solely from a transient UI or SSE update. Repeated events for the same business transition must be deduplicated.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer rbacScope(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_rbac_scope",
+                """
+                        Administrative access is enforced by server-derived role and data scope, not by a browser filter. A location administrator may manage that location's chargers, connectors, sessions, and scoped dashboard, while parent enterprise and network details are read-only.
+
+                        A Forbidden response means the role or assigned enterprise/network/location scope does not permit that operation. It must not expose records from another operator while diagnosing the access issue.
+                        """.trim(),
                 contextSummary(context)
         );
     }
@@ -360,6 +578,66 @@ public class DiagnosticAnswerService {
                         If idle fee is enabled and the session is active/idle, the simulator should authorize unplug using that code and then emit the unplug/status events.
 
                         If idle fee is disabled or there is no active session, unplug should not require a security code.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer rfidAuthorization(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "authorize_rfid",
+                """
+                        An RFID tag must be authorized before charging can start. An unknown or unauthorized tag must be rejected and must not create a transaction or charging session.
+
+                        Check the RFID authorization record, then tap again only after the tag is active for the selected network or charger.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer plugAndChargeAuthorization(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "authorize_plug_and_charge",
+                """
+                        Plug and Charge must validate the EMAID and contract certificate before charging starts. If the certificate is invalid, expired, or untrusted, authorization must be rejected and no session may start.
+
+                        Verify the contract certificate chain and EMAID registration for this charger, then retry authorization.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer paymentAuthorization(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_payment_authorization",
+                """
+                        For an account-linked credit-card session, ElectraHub should authorize the configured payment hold before remote start. If the charger rejects remote start or does not confirm the session, the unused authorization must be voided or reversed promptly.
+
+                        On a completed session, capture only the final billable amount and release any unused hold. A refund is a separate, auditable operation after a completed capture.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer realTimeCost(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_real_time_cost",
+                """
+                        Real-time charging cost is calculated by the backend, not by the app. The backend applies energy and time charges, session fee, taxes, subscription discount, idle fee, and the configured session and idle-fee caps.
+
+                        The app should display the active-session values returned by the backend, and the completed receipt should show the itemized final amount.
+                        """.trim(),
+                contextSummary(context)
+        );
+    }
+
+    private DiagnosticAnswer chargingNotifications(ContextPayload context) {
+        return new DiagnosticAnswer(
+                "explain_charging_notifications",
+                """
+                        Charging notifications are generated only after the backend confirms the matching session state. Idle alerts require an actual idle/SUSPENDED session, and battery-full alerts require the matching backend event.
+
+                        Repeated OCPP or SSE updates must not create duplicate notifications. Open the active session or notification record to verify the event and timestamp.
                         """.trim(),
                 contextSummary(context)
         );
@@ -609,9 +887,81 @@ public class DiagnosticAnswerService {
                 && containsAny(message, "payment", "transaction id", "admin", "receipt", "charge", "session");
     }
 
+    private static boolean isRfidAuthorizationQuestion(String message) {
+        return containsAny(message, "rfid", "id tag")
+                && containsAny(message, "authorize", "authorization", "unknown", "unauthorized", "reject", "start");
+    }
+
+    private static boolean isPastSessionDiagnosisQuestion(String message) {
+        return containsAny(message, "last charge", "last session", "previous charge", "previous session")
+                && containsAny(message, "fail", "failed", "stop", "stopped", "end", "ended", "receipt");
+    }
+
+    private static boolean isPlugAndChargeQuestion(String message) {
+        return containsAny(message, "plug and charge", "plug-and-charge", "pnc", "emaid", "contract certificate")
+                && containsAny(message, "certificate", "authorize", "authorization", "fail", "start", "validate");
+    }
+
+    private static boolean isPaymentAuthorizationQuestion(String message) {
+        return containsAny(message, "credit card", "credit-card", "payment")
+                && containsAny(message, "hold", "preauth", "pre-authorization", "authorization", "authorize", "void", "reverse", "refund", "capture");
+    }
+
+    private static boolean isRealTimeCostQuestion(String message) {
+        return containsAny(message, "real time cost", "realtime cost", "live cost", "cost calculation", "billing calculation")
+                || (containsAny(message, "idle fee", "session cap", "idle cap")
+                && containsAny(message, "cost", "calculation", "calculate", "incorrect"));
+    }
+
+    private static boolean isFeeCapQuestion(String message) {
+        return containsAny(message, "idle-fee", "idle fee", "session cap", "idle cap")
+                && containsAny(message, "cap", "work", "limit", "maximum");
+    }
+
+    private static boolean isReceiptCostConsistencyQuestion(String message) {
+        return containsAny(message, "receipt total", "receipt totals", "receipt cost")
+                && containsAny(message, "active-session", "active session", "match", "different", "incorrect");
+    }
+
+    private static boolean isSubscriptionQuestion(String message) {
+        return containsAny(message, "subscription", "quota")
+                && containsAny(message, "discount", "consumed", "consume", "exhausted", "quota", "applied");
+    }
+
+    private static boolean isChargingNotificationQuestion(String message) {
+        return containsAny(message, "notification", "push alert", "push notification", "battery full")
+                && containsAny(message, "idle", "battery", "duplicate", "repeated", "charging", "session");
+    }
+
+    private static boolean isNotificationLifecycleQuestion(String message) {
+        return containsAny(message, "notification", "push delivery", "push fail")
+                && containsAny(message, "generated", "delivery", "fail", "failed", "prevented", "why");
+    }
+
     private static boolean isRemoteStopIdleQuestion(String message) {
         return containsAny(message, "remote stop", "stop charging", "stop request")
                 && containsAny(message, "idle", "idle fee", "receipt", "unplug", "still active");
+    }
+
+    private static boolean isRemoteStopPreparationQuestion(String message) {
+        return containsAny(message, "remote stop", "remotely stopping")
+                && containsAny(message, "before", "check", "prepare");
+    }
+
+    private static boolean isChargerStatusManagementQuestion(String message) {
+        return containsAny(message, "changing charger status", "change charger status", "mark charger", "inoperative")
+                && containsAny(message, "before", "check", "status", "charger");
+    }
+
+    private static boolean isExplicitAvailableQuestion(String message) {
+        return containsAny(message, "explicit available", "available status")
+                && containsAny(message, "status", "happen", "transaction", "unplug");
+    }
+
+    private static boolean isRbacQuestion(String message) {
+        return containsAny(message, "location administrator", "location admin", "enterprise and network data scopes",
+                "data scope", "administrator receiving forbidden", "access scope")
+                || (message.contains("forbidden") && containsAny(message, "administrator", "admin", "access", "role"));
     }
 
     private static boolean isStartFailureQuestion(String message) {
@@ -624,6 +974,19 @@ public class DiagnosticAnswerService {
         String resourceType = context == null || context.resourceType() == null ? "" : context.resourceType().toLowerCase();
         return containsAny(message, "total revenue", "revenue", "sales", "income")
                 && (message.length() <= 80 || screen.contains("dashboard") || resourceType.contains("dashboard"));
+    }
+
+    private static boolean isDashboardAttentionQuestion(String message, ContextPayload context) {
+        String screen = context == null || context.screen() == null ? "" : context.screen().toLowerCase();
+        return screen.contains("dashboard")
+                && containsAny(message, "needs attention", "attention on this dashboard", "what should i monitor")
+                && !containsAny(message, "charging success", "success rate", "csr");
+    }
+
+    private static boolean isChargingSuccessQuestion(String message, ContextPayload context) {
+        String screen = context == null || context.screen() == null ? "" : context.screen().toLowerCase();
+        return containsAny(message, "charging success", "success rate", "csr")
+                && (screen.contains("dashboard") || message.contains("monitor"));
     }
 
     private static boolean isChargerAvailabilityQuestion(String message) {
@@ -664,14 +1027,6 @@ public class DiagnosticAnswerService {
         return value == null || value.isBlank();
     }
 
-    private static boolean looksLikePromptLeak(String answer) {
-        String normalized = answer == null ? "" : answer.toLowerCase();
-        return normalized.contains("if the user asks")
-                || normalized.contains("response rules")
-                || normalized.contains("project knowledge:")
-                || normalized.contains("backend facts:");
-    }
-
     private static boolean isDriverAudience(ContextPayload context) {
         if (context == null) {
             return true;
@@ -687,23 +1042,6 @@ public class DiagnosticAnswerService {
                 || screen.contains("livecharging")
                 || screen.contains("activecharging")
                 || screen.contains("mobile");
-    }
-
-    private static boolean requiresExactProjectAnswer(String toolName) {
-        return "diagnose_idle_remote_stop".equals(toolName)
-                || "diagnose_simulator_secure_unplug".equals(toolName)
-                || "explain_card_present_admin_payment".equals(toolName)
-                || "explain_admin_total_revenue".equals(toolName)
-                || "check_charger_availability".equals(toolName)
-                || "diagnose_charging_start".equals(toolName)
-                || "diagnose_session_state".equals(toolName)
-                || "check_charger_liveness".equals(toolName)
-                || "explain_receipt_lookup".equals(toolName)
-                || "explain_spend_analytics_gap".equals(toolName)
-                || "explain_usage_analytics_gap".equals(toolName)
-                || "explain_trip_data_unavailable".equals(toolName)
-                || "explain_pricing_context_needed".equals(toolName)
-                || "find_charger_alternatives".equals(toolName);
     }
 
     public record DiagnosticAnswer(String toolName, String text, String contextSummary) {

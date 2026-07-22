@@ -1,0 +1,377 @@
+{
+  "cases": [
+    {
+      "id": "ios-live-charging-stuck",
+      "audience": "driver",
+      "screen": "liveCharging",
+      "question": "Why is charging stuck?",
+      "authoritativeAnswer": "A session stuck in Preparing is waiting for the charger to confirm charging. If power and cost do not start moving, refresh the selected charger and choose another available connector if it remains stuck.",
+      "facts": "No selected session or charger id is available in this chat context.",
+      "checks": [{ "label": "explains the waiting state", "containsAny": ["preparing", "waiting", "charger"] }, { "label": "gives an action", "containsAny": ["refresh", "connector", "retry"] }]
+    },
+    {
+      "id": "ios-live-start-failure",
+      "audience": "driver",
+      "screen": "liveCharging",
+      "question": "Why did start fail?",
+      "authoritativeAnswer": "A charging start can fail when the charger is offline, the connector is no longer available, another session is finishing, or payment eligibility failed. Refresh the charger and use another available connector if needed.",
+      "facts": "No selected charger or connector is available in this chat context.",
+      "checks": [{ "label": "names a plausible verified cause", "containsAny": ["charger", "connector", "payment"] }, { "label": "gives a next action", "containsAny": ["refresh", "available", "retry"] }],
+      "forbiddenAny": ["because no charger or connector is currently available", "no charger or connector is currently available"]
+    },
+    {
+      "id": "ios-live-online",
+      "audience": "driver",
+      "screen": "liveCharging",
+      "question": "Is my charger online?",
+      "authoritativeAnswer": "Charger availability depends on a recent heartbeat. Without a selected charger id, the exact heartbeat cannot be checked. Open the selected charger to confirm its live state.",
+      "facts": "OCPP connection lookup was skipped because no charger id was provided.",
+      "checks": [{ "label": "mentions liveness evidence", "containsAny": ["heartbeat", "online", "charger"] }, { "label": "does not invent state", "containsAny": ["cannot", "open", "select"] }]
+    },
+    {
+      "id": "ios-dashboard-last-charge",
+      "audience": "driver",
+      "screen": "dashboard",
+      "question": "Why did my last charge fail?",
+      "authoritativeAnswer": "A precise diagnosis needs the selected session. Open the charging history entry so the charger, connector, session state, and receipt can be checked.",
+      "facts": "No selected session is available.",
+      "checks": [{ "label": "states that diagnosis needs the selected session", "containsAny": ["cannot", "need", "selected"] }, { "label": "asks for the selected session", "containsAny": ["session", "history", "receipt"] }],
+      "forbiddenAny": ["failed because there's no selected session", "failed because there is no selected session", "failed because no selected session"]
+    },
+    {
+      "id": "ios-dashboard-monthly-spend",
+      "audience": "driver",
+      "screen": "dashboard",
+      "question": "How much did I spend last month?",
+      "authoritativeAnswer": "Sparky cannot calculate monthly spend without a dated completed-session aggregation. It must not invent a total; use the dashboard or dated receipt report.",
+      "facts": "The monthly aggregation API is unavailable.",
+      "checks": [{ "label": "does not invent a total", "containsAny": ["cannot", "unavailable", "report"] }, { "label": "points to a safe source", "containsAny": ["dashboard", "receipt", "aggregation"] }]
+    },
+    {
+      "id": "ios-dashboard-most-used-station",
+      "audience": "driver",
+      "screen": "dashboard",
+      "question": "My most used station",
+      "authoritativeAnswer": "Most-used station requires a completed-session aggregation. Sparky cannot calculate it until that report is available and must not invent a station, assume there are no completed sessions, or substitute trip/session-history data.",
+      "facts": "No completed-session aggregation was supplied.",
+      "checks": [{ "label": "preserves data limitation", "containsAny": ["cannot", "aggregation", "report"] }],
+      "forbiddenAny": ["until you have completed sessions", "no completed sessions", "session history", "completed trips", "contact support"]
+    },
+    {
+      "id": "ios-map-occupied-charger",
+      "audience": "driver",
+      "screen": "map",
+      "question": "Is this charger available?",
+      "authoritativeAnswer": "No. The selected connector is charging and is not available. Choose another available connector.",
+      "facts": "charger EH-DEMO-001 status is CHARGING with 0 available port(s) and 1 busy port(s); connector CON-DEMO-001 is CHARGING available=false.",
+      "checks": [{ "label": "reports occupied state", "containsAny": ["not available", "busy", "charging"] }, { "label": "gives a safe next action", "containsAny": ["another", "connector", "available"] }]
+    },
+    {
+      "id": "ios-map-status",
+      "audience": "driver",
+      "screen": "map",
+      "question": "What does this status mean?",
+      "authoritativeAnswer": "Charging means the connector is in use. Available means it can accept a new session. Offline means it is not receiving recent charger heartbeats and should not be used.",
+      "facts": "connector CON-DEMO-001 is CHARGING available=false.",
+      "checks": [{ "label": "explains current status", "containsAny": ["charging", "in use", "connector"] }]
+    },
+    {
+      "id": "ios-map-alternative-ccs",
+      "audience": "driver",
+      "screen": "map",
+      "question": "Find another CCS charger",
+      "authoritativeAnswer": "An available CCS connector was found at EH-DEMO-002, connector CON-DEMO-002, 0.4 mi away. Open it and confirm that it still shows Available before starting.",
+      "facts": "Available CCS alternative: EH-DEMO-002 connector CON-DEMO-002 at Demo North, 0.4 mi away.",
+      "checks": [{ "label": "preserves exact alternative reference", "containsAll": ["EH-DEMO-002", "CON-DEMO-002"] }, { "label": "requires live confirmation", "containsAny": ["available", "confirm", "open"] }]
+    },
+    {
+      "id": "ios-payments-charge-explanation",
+      "audience": "driver",
+      "screen": "payments",
+      "question": "Why was I charged $X?",
+      "authoritativeAnswer": "The backend is the source of truth for energy cost, time cost, session fee, taxes, subscription discount, and idle fee. Open the receipt for the selected session to see the itemized amounts.",
+      "facts": "No selected receipt was supplied.",
+      "checks": [{ "label": "explains itemized billing", "containsAny": ["receipt", "cost", "tax", "idle"] }, { "label": "does not invent amount", "containsAny": ["open", "selected", "itemized"] }]
+    },
+    {
+      "id": "ios-payments-compare-pricing",
+      "audience": "driver",
+      "screen": "payments",
+      "question": "Compare pricing plans",
+      "authoritativeAnswer": "A precise comparison needs a selected tariff, charger, location, or pricing-plan report. Sparky must not estimate prices without that information.",
+      "facts": "No selected tariff or pricing plan was supplied.",
+      "checks": [{ "label": "preserves pricing context requirement", "containsAny": ["tariff", "pricing", "selected"] }, { "label": "does not guess prices", "containsAny": ["select", "specific", "accurate", "context"] }]
+    },
+    {
+      "id": "ios-payments-idle-fee",
+      "audience": "driver",
+      "screen": "payments",
+      "question": "How does idle fee work?",
+      "authoritativeAnswer": "After charging pauses on an idle-fee charger, the active session remains idle until the vehicle is unplugged. The backend calculates the configured fee, grace period, and cap; the receipt shows idle fee separately.",
+      "facts": "The selected price plan enables an idle fee with a configured cap.",
+      "checks": [{ "label": "explains idle lifecycle", "containsAny": ["idle", "unplug", "charging"] }, { "label": "explains price source", "containsAny": ["backend", "receipt", "cap"] }]
+    },
+    {
+      "id": "ios-history-last-receipt",
+      "audience": "driver",
+      "screen": "history",
+      "question": "Show last receipt",
+      "authoritativeAnswer": "Sparky cannot open a receipt unless a specific completed session is selected. Open the charging history entry, then the receipt can be shown.",
+      "facts": "No selected session is available.",
+      "checks": [{ "label": "requires selected session", "containsAny": ["session", "history", "receipt"] }]
+    },
+    {
+      "id": "ios-history-total-kwh",
+      "audience": "driver",
+      "screen": "history",
+      "question": "Total kWh this year",
+      "authoritativeAnswer": "Yearly kWh requires a completed-session aggregation by date. Sparky must not invent a value without the report.",
+      "facts": "No yearly aggregation was supplied.",
+      "checks": [{ "label": "does not invent kWh", "containsAny": ["not available", "history", "usage", "completed session"] }]
+    },
+    {
+      "id": "ios-history-trip-distance",
+      "audience": "driver",
+      "screen": "history",
+      "question": "Trips over 100 km",
+      "authoritativeAnswer": "ElectraHub has charging sessions and receipts, not vehicle trip telemetry. It cannot answer trip-distance questions without that source.",
+      "facts": "Vehicle trip telemetry is not available.",
+      "checks": [{ "label": "explains data boundary", "containsAny": ["trip", "telemetry", "cannot"] }]
+    },
+    {
+      "id": "admin-remote-stop-idle",
+      "audience": "admin",
+      "screen": "charging-sessions",
+      "question": "Why is a session still idle after remote stop?",
+      "authoritativeAnswer": "When idle fee is enabled, remote stop pauses charging but does not settle the session. It stays SUSPENDED/idle until unplug and receipt generation must wait for terminal settlement. Check session state, OCPP unplug event, and simulator connector state.",
+      "facts": "Session S-DEMO is SUSPENDED and unplugRequiredToStop=true.",
+      "checks": [{ "label": "explains idle behavior", "containsAny": ["idle", "unplug", "suspended"] }, { "label": "gives an operational check", "containsAny": ["OCPP", "session", "simulator"] }]
+    },
+    {
+      "id": "admin-card-present",
+      "audience": "admin",
+      "screen": "charging-sessions",
+      "question": "What should admin see for a tap credit card session?",
+      "authoritativeAnswer": "Show Credit Card with a masked card number when available. For an ElectraHub-authorized card-present session, show the ElectraHub payment authorization id, never the raw processor transaction id or full card number. The driver can be anonymous.",
+      "facts": "Session is card-present and has an ElectraHub authorization reference.",
+      "checks": [{ "label": "protects card data", "containsAny": ["masked", "Credit Card", "card"] }, { "label": "uses ElectraHub reference", "containsAny": ["authorization", "ElectraHub"] }]
+    },
+    {
+      "id": "admin-simulator-unplug",
+      "audience": "admin",
+      "screen": "connectors",
+      "question": "What should I check if the simulator unplug is not working?",
+      "authoritativeAnswer": "For an active idle-fee session, confirm that the simulator has the matching connector, session, and security code. A successful unplug must emit the connector status and terminal session events. No active session or an idle-fee-disabled session must not require a code.",
+      "facts": "Connector CON-DEMO-001 is SUSPENDED with an active idle-fee session.",
+      "checks": [{ "label": "mentions secure unplug prerequisites", "containsAny": ["security", "code", "connector"] }, { "label": "mentions terminal events", "containsAny": ["unplug", "session", "status"] }]
+    },
+    {
+      "id": "simulator-unknown-rfid",
+      "audience": "admin",
+      "screen": "simulator",
+      "question": "Can an unknown RFID tag start a session?",
+      "authoritativeAnswer": "No. The simulator must authorize the RFID first. An unknown tag must be rejected and must not create a transaction or charging session.",
+      "facts": "RFID AUTH-UNKNOWN is not authorized.",
+      "checks": [{ "label": "rejects unknown RFID", "containsAny": ["reject", "not authorized", "cannot"] }, { "label": "prevents session", "containsAny": ["session", "transaction", "charging"] }]
+    },
+    {
+      "id": "simulator-pnc-certificate",
+      "audience": "admin",
+      "screen": "simulator",
+      "question": "What happens if Plug and Charge certificate validation fails?",
+      "authoritativeAnswer": "The contract certificate and EMAID authorization must be validated before charging starts. If validation fails, authorization is rejected and no session starts.",
+      "facts": "Contract certificate validation failed for the submitted EMAID.",
+      "checks": [{ "label": "explains validation", "containsAny": ["certificate", "EMAID", "authorize"] }, { "label": "prevents session", "containsAny": ["reject", "not start", "session"] }]
+    },
+    {
+      "id": "payment-authorization-reversal",
+      "audience": "admin",
+      "screen": "payment-configuration",
+      "question": "What happens to a credit-card hold when remote start fails?",
+      "authoritativeAnswer": "The configured credit-card hold is authorized before remote start. When the remote start cannot be confirmed, the unused card authorization must be voided or reversed promptly. Capture happens only after a completed billable session; refunds are separate audited operations after capture. Never say the hold was not applied.",
+      "facts": "RemoteStart failed before charger confirmation.",
+      "checks": [{ "label": "keeps the authorization-hold lifecycle", "containsAny": ["hold", "authorization"] }, { "label": "releases unused hold", "containsAny": ["void", "reverse", "release"] }, { "label": "distinguishes capture or refund", "containsAny": ["capture", "refund", "authorization"] }],
+      "forbiddenAny": ["hold will not be applied", "no hold is placed", "do not need to reverse"]
+    },
+    {
+      "id": "admin-dashboard-attention",
+      "audience": "admin",
+      "screen": "dashboard",
+      "question": "What needs attention on this dashboard?",
+      "authoritativeAnswer": "Review scoped active idle/stuck sessions, failed starts, offline or faulted chargers, payment/settlement failures, and unread operational notifications. Do not claim an issue without current dashboard facts.",
+      "facts": "No current dashboard records were supplied.",
+      "checks": [{ "label": "keeps the dashboard scope", "containsAny": ["dashboard", "current", "scoped"] }, { "label": "names operational checks", "containsAny": ["session", "charger", "payment", "notification"] }]
+    },
+    {
+      "id": "admin-dashboard-revenue-calculation",
+      "audience": "admin",
+      "screen": "dashboard",
+      "question": "How is total revenue calculated?",
+      "authoritativeAnswer": "Total revenue must use completed charging revenue for the selected date and scope. It reconciles billable energy, time, fees, taxes, discount, and idle fee against settled receipts, excluding active and failed sessions.",
+      "facts": "No total or date range was supplied.",
+      "checks": [{ "label": "keeps revenue scoped to completed sessions", "containsAny": ["revenue", "completed", "receipt"] }, { "label": "does not invent a total", "containsAny": ["selected", "scope", "date", "no total"] }]
+    },
+    {
+      "id": "admin-dashboard-charging-success",
+      "audience": "admin",
+      "screen": "dashboard",
+      "question": "What should I monitor for charging success?",
+      "authoritativeAnswer": "Monitor charging success rate from eligible attempts through terminal settlement, failed-start reasons, charger availability, command latency, and incomplete idle sessions. Classify manual cancellation and driver-card failures separately from platform failure.",
+      "facts": "No current CSR report was supplied.",
+      "checks": [{ "label": "explains charging success monitoring", "containsAny": ["charging success", "success rate", "eligible"] }, { "label": "keeps session evidence", "containsAny": ["session", "failure", "charger"] }]
+    },
+    {
+      "id": "admin-remote-stop-precheck",
+      "audience": "admin",
+      "screen": "charging-sessions",
+      "question": "What should I check before remotely stopping an active session?",
+      "authoritativeAnswer": "Confirm selected active session/connector state and idle-fee configuration. Remote stop pauses charging; idle-fee sessions require unplug before receipt, while an idle-fee-disabled session can settle after terminal confirmation.",
+      "facts": "No selected session was supplied.",
+      "checks": [{ "label": "keeps remote stop context", "containsAny": ["remote stop", "session", "connector"] }, { "label": "explains idle settlement", "containsAny": ["idle", "unplug", "receipt"] }]
+    },
+    {
+      "id": "admin-charger-offline",
+      "audience": "admin",
+      "screen": "chargers",
+      "question": "Why is this charger shown offline?",
+      "authoritativeAnswer": "A charger is offline when recent OCPP heartbeat or connection evidence is absent. Confirm the selected charger, last heartbeat, connection state, and most recent status notification before changing state.",
+      "facts": "No selected charger id was supplied.",
+      "checks": [{ "label": "uses heartbeat evidence", "containsAny": ["heartbeat", "OCPP", "connection"] }, { "label": "does not invent selected state", "containsAny": ["selected", "cannot", "confirm", "check"] }]
+    },
+    {
+      "id": "admin-charger-status-change",
+      "audience": "admin",
+      "screen": "chargers",
+      "question": "What should I check before changing charger status?",
+      "authoritativeAnswer": "Confirm selected charger/connector, active or reserved session, latest OCPP heartbeat, and driver impact. Inoperative prevents new sessions and a charger should return to service only after healthy status/heartbeat evidence.",
+      "facts": "No selected charger id was supplied.",
+      "checks": [{ "label": "keeps charger management safeguards", "containsAny": ["charger", "connector", "status"] }, { "label": "uses operational evidence", "containsAny": ["heartbeat", "inoperative", "session"] }]
+    },
+    {
+      "id": "admin-charger-heartbeat-availability",
+      "audience": "admin",
+      "screen": "chargers",
+      "question": "How do heartbeat and connector status affect availability?",
+      "authoritativeAnswer": "Recent heartbeat proves charger connectivity while connector status decides whether a driver can start. Missing heartbeat must make the charger unavailable; charging, faulted, reserved, or inoperative connector status also blocks a new session.",
+      "facts": "No selected charger id was supplied.",
+      "checks": [{ "label": "connects heartbeat and availability", "containsAny": ["heartbeat", "available", "unavailable"] }, { "label": "uses connector state", "containsAny": ["connector", "charging", "faulted", "reserved"] }]
+    },
+    {
+      "id": "admin-connector-unavailable",
+      "audience": "admin",
+      "screen": "connectors",
+      "question": "Why is this connector unavailable?",
+      "authoritativeAnswer": "Connector availability depends on live status and recent charger connectivity. Charging, occupied, reserved, faulted, inoperative, or an offline heartbeat state blocks new charging; inspect the selected connector status and last event.",
+      "facts": "No selected connector id was supplied.",
+      "checks": [{ "label": "explains connector availability", "containsAny": ["connector", "unavailable", "available"] }, { "label": "uses live evidence or safely requests it", "containsAny": ["live", "connectivity", "status", "select"] }]
+    },
+    {
+      "id": "admin-explicit-available",
+      "audience": "admin",
+      "screen": "connectors",
+      "question": "What should happen after an explicit Available status?",
+      "authoritativeAnswer": "After terminal unplug, an explicit Available status identifies connector/status only and must not carry a transaction id. The session must already be terminal before a new driver can use the connector.",
+      "facts": "No selected connector event was supplied.",
+      "checks": [{ "label": "preserves Available event", "containsAny": ["Available", "available", "status"] }, { "label": "excludes transaction id", "containsAny": ["transaction id", "transaction"] }]
+    },
+    {
+      "id": "admin-pricing-caps",
+      "audience": "admin",
+      "screen": "pricing",
+      "question": "How do idle-fee and session caps work?",
+      "authoritativeAnswer": "The backend enforces configured session and idle-fee caps. Active estimate and final receipt use the same tariff, taxes, discount, and cap; charging and idle amount are itemized separately.",
+      "facts": "No selected tariff was supplied.",
+      "checks": [{ "label": "keeps backend ownership", "containsAny": ["backend", "receipt"] }, { "label": "explains caps", "containsAny": ["cap", "idle", "session"] }]
+    },
+    {
+      "id": "admin-receipt-cost-consistency",
+      "audience": "admin",
+      "screen": "pricing",
+      "question": "Why must receipt totals match active-session cost?",
+      "authoritativeAnswer": "The active cost is a backend estimate and receipt is the final billable record. Reconcile meter timestamps, tariff snapshot, taxes, discounts, idle duration, caps, and terminal settlement; UI must not calculate the total.",
+      "facts": "No selected receipt was supplied.",
+      "checks": [{ "label": "distinguishes active and final cost", "containsAny": ["active", "receipt", "final"] }, { "label": "keeps backend calculation", "containsAny": ["backend", "settlement", "meter", "tariff"] }]
+    },
+    {
+      "id": "admin-subscription-discount",
+      "audience": "admin",
+      "screen": "subscriptions",
+      "question": "Why was a subscription discount not applied?",
+      "authoritativeAnswer": "A discount applies only when plan is active, scope matches selected network/location/tariff, and usable quota remains. Check the selected receipt allocation, eligible energy, remaining quota, and discount line.",
+      "facts": "No selected allocation was supplied.",
+      "checks": [{ "label": "explains discount eligibility", "containsAny": ["subscription", "discount", "plan"] }, { "label": "requires quota or scope", "containsAny": ["quota", "scope", "eligible"] }]
+    },
+    {
+      "id": "admin-subscription-quota",
+      "audience": "admin",
+      "screen": "subscriptions",
+      "question": "How is subscription quota consumed?",
+      "authoritativeAnswer": "Quota is consumed by eligible energy within plan scope. Backend records covered/uncovered energy atomically so remaining quota and receipt stay consistent.",
+      "facts": "No selected allocation was supplied.",
+      "checks": [{ "label": "explains quota consumption", "containsAny": ["quota", "energy", "subscription"] }, { "label": "keeps backend consistency", "containsAny": ["backend", "receipt", "covered"] }]
+    },
+    {
+      "id": "admin-subscription-exhaustion",
+      "audience": "admin",
+      "screen": "subscriptions",
+      "question": "What should happen when a quota is exhausted?",
+      "authoritativeAnswer": "After quota exhaustion, later energy uses normal tariff with no subscription discount. Plan can remain active with zero quota; receipt must show covered/uncovered energy and discount actually applied.",
+      "facts": "No selected allocation was supplied.",
+      "checks": [{ "label": "explains exhausted quota", "containsAny": ["quota", "exhausted", "zero"] }, { "label": "protects pricing outcome", "containsAny": ["discount", "tariff", "receipt"] }]
+    },
+    {
+      "id": "admin-rbac-location",
+      "audience": "admin",
+      "screen": "rbac-policy",
+      "question": "What can a location administrator access?",
+      "authoritativeAnswer": "Location admin manages only assigned location chargers, connectors, sessions, and dashboard. Parent enterprise/network are read-only; records from other locations/operators must never be visible.",
+      "facts": "No administrator assignment was supplied.",
+      "checks": [{ "label": "enforces location scope", "containsAny": ["location", "access", "scope"] }, { "label": "protects other operator data", "containsAny": ["network", "enterprise", "other"] }]
+    },
+    {
+      "id": "admin-rbac-hierarchy",
+      "audience": "admin",
+      "screen": "rbac-policy",
+      "question": "How are enterprise and network data scopes enforced?",
+      "authoritativeAnswer": "Server-derived role/access scope controls enterprise, network, location, charger, session, and dashboard data. Browser filters cannot broaden scope and lower-level admins cannot modify parent entities.",
+      "facts": "No administrator assignment was supplied.",
+      "checks": [{ "label": "uses server-side scope", "containsAny": ["scope", "server", "access"] }, { "label": "covers hierarchy", "containsAny": ["enterprise", "network", "location"] }]
+    },
+    {
+      "id": "admin-rbac-forbidden",
+      "audience": "admin",
+      "screen": "rbac-policy",
+      "question": "Why is this administrator receiving Forbidden?",
+      "authoritativeAnswer": "Forbidden means role or assigned scope does not permit requested action. Verify role and enterprise/network/location assignment without exposing another operator record.",
+      "facts": "No administrator assignment was supplied.",
+      "checks": [{ "label": "explains Forbidden safely", "containsAny": ["Forbidden", "forbidden", "access", "role"] }, { "label": "keeps scope", "containsAny": ["scope", "location", "network", "enterprise"] }]
+    },
+    {
+      "id": "admin-notification-generated",
+      "audience": "admin",
+      "screen": "notifications",
+      "question": "Why was this notification generated?",
+      "authoritativeAnswer": "Generate notification only after backend confirms matching event and recipient. Notification record should identify event, session/account reference, timestamp, and delivery state; transient UI/SSE update alone is not enough.",
+      "facts": "No selected notification was supplied.",
+      "checks": [{ "label": "uses confirmed backend event", "containsAny": ["notification", "backend", "event"] }, { "label": "keeps record evidence", "containsAny": ["session", "timestamp", "delivery", "record"] }]
+    },
+    {
+      "id": "admin-notification-duplicate",
+      "audience": "admin",
+      "screen": "notifications",
+      "question": "How are duplicate charging alerts prevented?",
+      "authoritativeAnswer": "Repeated OCPP/SSE updates for the same business transition must be deduplicated. Generate idle/battery alerts only after backend confirms matching session state and retain one auditable notification record.",
+      "facts": "No selected notification was supplied.",
+      "checks": [{ "label": "requires deduplication", "containsAny": ["duplicate", "deduplic", "repeated"] }, { "label": "uses session state", "containsAny": ["backend", "session", "notification"] }]
+    },
+    {
+      "id": "admin-push-delivery-failure",
+      "audience": "admin",
+      "screen": "notifications",
+      "question": "What should happen when push delivery fails?",
+      "authoritativeAnswer": "Push failure must retain notification record and delivery state, retry transient Firebase errors with backoff, and mark permanent failure for audit/dead-letter handling. In-app notification can remain visible.",
+      "facts": "No selected notification was supplied.",
+      "checks": [{ "label": "keeps delivery handling", "containsAny": ["push", "notification", "delivery"] }, { "label": "requires retry or failed state", "containsAny": ["retry", "failure", "Firebase", "dead-letter"] }]
+    }
+  ]
+}
