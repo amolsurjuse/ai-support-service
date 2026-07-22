@@ -1,6 +1,6 @@
 param(
-    [string]$ModelName = "electrahub-sparky:8b",
-    [string]$BaseModel = "qwen3:8b",
+    [string]$ModelName = "electrahub-sparky:4b",
+    [string]$BaseModel = "qwen3:4b-instruct",
     [string]$Modelfile = "$PSScriptRoot\..\..\ollama\Modelfile"
 )
 

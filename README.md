@@ -76,7 +76,7 @@ The project tuning is intentionally grounded instead of open-ended fine-tuning:
 - Live backend diagnostics remain the source of truth for current charger, wallet, payment, receipt, and session state.
 - If Ollama is unavailable or too slow, deterministic diagnostics are returned as the safe fallback.
 
-The current production model is `qwen3:8b`, exposed as `electrahub-sparky:8b`. Sparky disables the model's exposed reasoning mode for predictable driver-facing latency and strips/rejects reasoning or prompt leakage before an answer can reach a client.
+The current production model is the non-thinking `qwen3:4b-instruct`, exposed as `electrahub-sparky:4b`. This keeps driver-facing latency predictable while the service still strips or rejects reasoning and prompt leakage before an answer can reach a client.
 
 Create the local model:
 
@@ -90,7 +90,7 @@ Run the service against Ollama:
 AI_PROVIDER_ENABLED=true
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-AI_MODEL=electrahub-sparky:8b
+AI_MODEL=electrahub-sparky:4b
 AI_TEMPERATURE=0.12
 AI_MAX_OUTPUT_TOKENS=320
 AI_LLM_TIMEOUT_MS=30000
@@ -107,6 +107,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\ollama\evaluate-sparky-prompt
 
 The suite covers every current iOS/admin suggested prompt plus critical simulator RFID, Plug and Charge, card-present, idle/unplug, and payment-authorisation scenarios. It checks that answers preserve required operational meaning and do not expose prompt content or hidden reasoning.
 
-For Kubernetes, make the Ollama host reachable from `ai-support-service`, then set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, and `AI_MODEL=electrahub-sparky:8b`. The deterministic diagnostics remain the fallback if Ollama is unreachable or returns no usable answer.
+For Kubernetes, make the Ollama host reachable from `ai-support-service`, then set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, and `AI_MODEL=electrahub-sparky:4b`. The deterministic diagnostics remain the fallback if Ollama is unreachable or returns no usable answer.
 
 `POST /api/v1/chat/messages` returns a normalized final answer for all clients. `GET /api/v1/chat/threads/{threadId}/stream?since={messageId}` streams the same rendered answer over SSE.

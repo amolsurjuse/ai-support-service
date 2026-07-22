@@ -152,7 +152,10 @@ final class SparkyAnswerQualityGuard {
         }
         return containsAny(answer, "cannot", "need", "select")
                 && containsAny(answer, "session", "history")
-                && !containsAny(answer, "failed because there", "failed because no", "failure is because");
+                && !containsAny(answer,
+                "failed because there", "failed because no", "failure is because",
+                "last charge didn't complete", "last charge did not complete",
+                "past charge didn't complete", "past charge did not complete");
     }
 
     private static boolean preservesImportantIdentifiers(String answer, String fallback) {

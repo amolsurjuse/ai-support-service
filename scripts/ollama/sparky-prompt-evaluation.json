@@ -127,7 +127,7 @@
       "question": "Total kWh this year",
       "authoritativeAnswer": "Yearly kWh requires a completed-session aggregation by date. Sparky must not invent a value without the report.",
       "facts": "No yearly aggregation was supplied.",
-      "checks": [{ "label": "does not invent kWh", "containsAny": ["not available", "history", "usage", "completed session"] }]
+      "checks": [{ "label": "does not invent kWh", "containsAny": ["cannot", "aggregation", "not available", "history", "usage", "completed session"] }]
     },
     {
       "id": "ios-history-trip-distance",

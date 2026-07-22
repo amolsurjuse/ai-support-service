@@ -153,6 +153,7 @@ final class LlmPromptFormatter {
                 - If the aggregation is unavailable, say the result cannot be calculated yet.
                 - Do not replace it with vehicle trips, generic history browsing, or an assumption that no completed sessions exist.
                 - Do not direct the driver to session history or support as a way to calculate the unavailable aggregate.
+                - Do not mention contact support unless it is explicitly required by the authoritative answer.
                 """);
     }
 
@@ -164,7 +165,8 @@ final class LlmPromptFormatter {
         builder.append("""
 
                 \nNon-negotiable past-session diagnostic rule:
-                - State that Sparky cannot diagnose the exact failure without the selected session.
+                - Start with: "A precise diagnosis needs the selected session."
+                - Do not state that the past charge failed, stopped, or did not complete: that outcome is not verified.
                 - Missing session context is not the cause of a charging failure.
                 - Do not speculate about possible causes before asking the driver to open the selected history entry.
                 """);

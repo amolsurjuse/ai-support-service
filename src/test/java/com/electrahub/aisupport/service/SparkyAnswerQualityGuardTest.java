@@ -128,4 +128,19 @@ class SparkyAnswerQualityGuardTest {
         assertThat(evaluation.accepted()).isFalse();
         assertThat(evaluation.reason()).isEqualTo("authoritative_intent_not_preserved");
     }
+
+    @Test
+    void rejectsPastSessionAnswerThatClaimsTheChargeDidNotComplete() {
+        var evaluation = guard.evaluate(
+                "Your last charge didn't complete, but I cannot see the session details. Open charging history.",
+                new DiagnosticAnswerService.DiagnosticAnswer(
+                        "diagnose_past_session",
+                        "A precise diagnosis needs the selected session. Open the charging history entry so the session can be checked.",
+                        ""),
+                "Why did my last charge fail?",
+                new ContextPayload("dashboard", null, null, null, null, null, null, "driver"));
+
+        assertThat(evaluation.accepted()).isFalse();
+        assertThat(evaluation.reason()).isEqualTo("authoritative_intent_not_preserved");
+    }
 }
