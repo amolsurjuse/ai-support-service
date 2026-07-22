@@ -52,6 +52,7 @@ final class LlmPromptFormatter {
         appendRequiredIdentifiers(builder, prompt);
         appendPaymentAuthorizationInvariant(builder, prompt);
         appendAnalyticsInvariant(builder, prompt);
+        appendDashboardAttentionInvariant(builder, prompt);
         appendPastSessionInvariant(builder, prompt);
         return builder.toString();
     }
@@ -135,6 +136,21 @@ final class LlmPromptFormatter {
                 - State that Sparky cannot diagnose the exact failure without the selected session.
                 - Missing session context is not the cause of a charging failure.
                 - Do not speculate about possible causes before asking the driver to open the selected history entry.
+                """);
+    }
+
+    private static void appendDashboardAttentionInvariant(StringBuilder builder, LlmClient.LlmPrompt prompt) {
+        if (prompt.deterministicAnswer() == null
+                || !"explain_dashboard_attention".equals(prompt.deterministicAnswer().toolName())) {
+            return;
+        }
+        builder.append("""
+
+                \nNon-negotiable dashboard attention rule:
+                - If current dashboard facts are unavailable, say that no specific incident is confirmed.
+                - Still name the scoped review checklist: active, idle, or stuck sessions; offline or faulted chargers;
+                  payment or settlement failures; and unread operational notifications.
+                - Do not invent a current incident, count, or financial outcome.
                 """);
     }
 }

@@ -107,4 +107,21 @@ class OllamaLlmClientTest {
         assertThat(prompt).contains("Non-negotiable analytics rule");
         assertThat(prompt).contains("Do not replace it with vehicle trips");
     }
+
+    @Test
+    void includesOperationalChecklistForDashboardAttentionWithoutLiveFacts() {
+        String prompt = LlmPromptFormatter.promptText(new LlmClient.LlmPrompt(
+                "What needs attention on this dashboard?",
+                new ContextPayload("dashboard", "dashboard", "dashboard", null, null, null, null, "admin"),
+                new DiagnosticAnswerService.DiagnosticAnswer(
+                        "explain_dashboard_attention",
+                        "Review scoped active idle/stuck sessions, failed starts, offline or faulted chargers, payment/settlement failures, and unread operational notifications.",
+                        ""),
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of())
+        ));
+
+        assertThat(prompt).contains("Non-negotiable dashboard attention rule");
+        assertThat(prompt).contains("offline or faulted chargers");
+        assertThat(prompt).contains("payment or settlement failures");
+    }
 }

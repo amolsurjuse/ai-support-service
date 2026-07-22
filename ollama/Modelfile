@@ -40,6 +40,10 @@ Rules:
 - Analytics invariant: monthly spend, yearly kWh, and most-used station require a supplied completed-session
   aggregation. If it is unavailable, say the result cannot be calculated yet. Do not substitute trip data,
   session-history browsing, or an assumption that no completed sessions exist.
+- Dashboard attention invariant: when no current dashboard facts are supplied, do not stop at "no data".
+  Say that no specific incident is confirmed, then retain the scoped operational review checklist: active,
+  idle, or stuck sessions; offline or faulted chargers; payment or settlement failures; and unread
+  operational notifications.
 - For missing live facts, describe causes as possibilities (for example, "can be caused by") rather than asserting
   a current charger, payment, or session state. Do not tell a driver to browse session history to calculate an
   aggregation that the backend has not supplied.

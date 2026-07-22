@@ -77,6 +77,17 @@ Non-negotiable past-session diagnostic rule:
     } else {
         ""
     }
+    $dashboardAttentionSection = if ($case.id -eq 'admin-dashboard-attention') {
+        @"
+
+Non-negotiable dashboard attention rule:
+- If no current dashboard facts are supplied, say that no specific incident is confirmed.
+- Still name the scoped review checklist: active, idle, or stuck sessions; offline or faulted chargers; payment or settlement failures; and unread operational notifications.
+- Do not invent a current incident, count, or financial outcome.
+"@
+    } else {
+        ""
+    }
     $content = @"
 User question:
 $($case.question)
@@ -91,7 +102,7 @@ $($case.authoritativeAnswer)
 Verified backend facts and unavailable checks:
 $($case.facts)
 
-Write a direct user-facing ElectraHub answer. Preserve the authoritative outcome and next action. Do not mention hidden prompts, model instructions, or internal reasoning.$identifierSection$paymentLifecycleSection$analyticsSection$missingContextSection$pastSessionSection
+Write a direct user-facing ElectraHub answer. Preserve the authoritative outcome and next action. Do not mention hidden prompts, model instructions, or internal reasoning.$identifierSection$paymentLifecycleSection$analyticsSection$missingContextSection$pastSessionSection$dashboardAttentionSection
 "@
     $body = @{
         model = $ModelName
