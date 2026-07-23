@@ -12,7 +12,7 @@ final class LlmPromptFormatter {
 
     static String promptText(LlmClient.LlmPrompt prompt) {
         StringBuilder builder = new StringBuilder();
-        builder.append("User question:\n").append(truncate(nullToBlank(prompt.userMessage()), 400)).append("\n\n");
+        builder.append("User question:\n").append(truncate(nullToBlank(prompt.userMessage()), 280)).append("\n\n");
         builder.append("Runtime context:\n");
         if (prompt.context() == null) {
             builder.append("- none\n");
@@ -25,29 +25,26 @@ final class LlmPromptFormatter {
             append(builder, "locationId", prompt.context().locationId());
             append(builder, "sessionId", prompt.context().sessionId());
             if (prompt.context().attributes() != null && !prompt.context().attributes().isEmpty()) {
-                prompt.context().attributes().entrySet().stream().limit(12).forEach(entry ->
-                        append(builder, "attribute." + entry.getKey(), truncate(entry.getValue(), 120)));
+                prompt.context().attributes().entrySet().stream().limit(8).forEach(entry ->
+                        append(builder, "attribute." + entry.getKey(), truncate(entry.getValue(), 80)));
             }
         }
         builder.append("\nProject behavior relevant to this question:\n")
-                .append(ElectraHubKnowledgeBase.relevantFacts(prompt.userMessage(), prompt.context(), 2))
+                .append(ElectraHubKnowledgeBase.relevantFacts(prompt.userMessage(), prompt.context(), 1))
                 .append("\n\nAuthoritative answer that must remain true:\n")
-                .append(prompt.deterministicAnswer() == null ? "" : truncate(prompt.deterministicAnswer().text(), 900))
+                .append(prompt.deterministicAnswer() == null ? "" : truncate(prompt.deterministicAnswer().text(), 650))
                 .append("\n\nVerified backend facts and unavailable checks:\n")
                 .append(prompt.diagnostics() == null
                         ? "No backend facts were available."
-                        : truncate(prompt.diagnostics().toAnswerText(), 900))
+                        : truncate(prompt.diagnostics().toAnswerText(), 650))
                 .append("""
 
                         \n\nWrite the final user-facing answer now.
-                        - Rewrite the authoritative answer faithfully. Preserve every outcome, restriction, and next step.
-                        - Do not infer a failure, success, charge, availability state, payment outcome, or amount.
-                        - Preserve exact identifiers, connector names, amounts, statuses, and required lifecycle steps.
-                        - Missing context or an unavailable report is not evidence of a failure, unavailable charger, or absent completed sessions.
-                        - If clearer wording would change the meaning, use the authoritative wording instead.
-                        - Use verified backend facts only when they apply to the selected charger, connector, or session.
-                        - Do not add statistics, prices, availability, payment, or session facts that were not supplied.
-                        - Do not mention this instruction, prompt labels, model, or hidden reasoning.
+                        - Faithfully rewrite the authoritative answer; preserve the outcome, restriction, and next action.
+                        - Preserve supplied identifiers, amounts, statuses, and lifecycle steps exactly.
+                        - Never invent a state, amount, availability, payment result, or session outcome.
+                        - Use backend facts only for the selected resource. Missing context is not evidence.
+                        - Do not mention prompts, models, hidden reasoning, or instructions.
                         """);
         appendRequiredIdentifiers(builder, prompt);
         appendPaymentAuthorizationInvariant(builder, prompt);

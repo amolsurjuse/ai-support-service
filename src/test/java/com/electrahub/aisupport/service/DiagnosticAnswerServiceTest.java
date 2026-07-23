@@ -575,6 +575,22 @@ class DiagnosticAnswerServiceTest {
                 "electrahub-sparky",
                 0.2,
                 140,
-                10_000);
+                10_000,
+                "ollama",
+                false,
+                "http://vllm:8000",
+                "sparky-qwen3-8b",
+                10_000,
+                true,
+                "electrahub-sparky",
+                10_000,
+                1,
+                false,
+                false,
+                "",
+                "https://generativelanguage.googleapis.com",
+                "gemini-2.5-flash-lite",
+                10_000,
+                30_000L);
     }
 }

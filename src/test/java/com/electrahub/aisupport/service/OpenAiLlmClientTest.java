@@ -48,7 +48,23 @@ class OpenAiLlmClientTest {
                     "gpt-4.1-mini",
                     0.2,
                     500,
-                    2_000
+                    2_000,
+                    "openai",
+                    false,
+                    "http://vllm:8000",
+                    "sparky-qwen3-8b",
+                    2_000,
+                    true,
+                    "electrahub-sparky:4b",
+                    2_000,
+                    1,
+                    false,
+                    false,
+                    "",
+                    "https://generativelanguage.googleapis.com",
+                    "gemini-2.5-flash-lite",
+                    2_000,
+                    30_000L
             );
             OpenAiLlmClient client = new OpenAiLlmClient(properties, new ObjectMapper());
             LlmClient.LlmCompletion completion = client.complete(new LlmClient.LlmPrompt(

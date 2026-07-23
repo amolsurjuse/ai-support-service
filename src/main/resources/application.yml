@@ -19,6 +19,7 @@ electrahub:
   ai-support:
     provider-enabled: ${AI_PROVIDER_ENABLED:false}
     provider: ${AI_PROVIDER:openai}
+    provider-chain: ${AI_PROVIDER_CHAIN:}
     support-email: ${SUPPORT_EMAIL:support@electrahub.com}
     stream-token-delay-ms: ${AI_STREAM_TOKEN_DELAY_MS:18}
     session-service-url: ${SESSION_SERVICE_URL:http://session-service:8083}
@@ -32,6 +33,21 @@ electrahub:
     openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com}
     ollama-base-url: ${OLLAMA_BASE_URL:http://ollama:11434}
     model: ${AI_MODEL:gpt-4.1-mini}
+    vllm-enabled: ${AI_VLLM_ENABLED:false}
+    vllm-base-url: ${VLLM_BASE_URL:http://vllm:8000}
+    vllm-model: ${VLLM_MODEL:sparky-qwen3-8b}
+    vllm-timeout-ms: ${AI_VLLM_TIMEOUT_MS:7000}
+    ollama-enabled: ${AI_OLLAMA_ENABLED:true}
+    ollama-model: ${OLLAMA_MODEL:${AI_MODEL:electrahub-sparky:4b}}
+    ollama-timeout-ms: ${AI_OLLAMA_TIMEOUT_MS:${AI_LLM_TIMEOUT_MS:12000}}
+    ollama-max-concurrent-requests: ${AI_OLLAMA_MAX_CONCURRENT_REQUESTS:1}
+    gemini-enabled: ${AI_GEMINI_ENABLED:false}
+    hosted-fallback-enabled: ${AI_HOSTED_FALLBACK_ENABLED:false}
+    gemini-api-key: ${GEMINI_API_KEY:}
+    gemini-base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+    gemini-model: ${GEMINI_MODEL:gemini-2.5-flash-lite}
+    gemini-timeout-ms: ${AI_GEMINI_TIMEOUT_MS:7000}
+    provider-failure-cooldown-ms: ${AI_PROVIDER_FAILURE_COOLDOWN_MS:30000}
     temperature: ${AI_TEMPERATURE:0.12}
-    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:320}
+    max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:180}
     llm-timeout-ms: ${AI_LLM_TIMEOUT_MS:12000}

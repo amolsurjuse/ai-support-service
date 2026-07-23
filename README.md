@@ -46,26 +46,60 @@ The stream emits JSON `data:` payloads with these `type` values:
 3. Add Postgres persistence for threads/messages/audit.
 4. Add gateway route `/ai/**` and k8s deployment through `k8s-platform`.
 
-## LLM provider mode
+## Provider routing and privacy
 
-Sparky can run as a real LLM-backed assistant while keeping deterministic diagnostics as a safe fallback.
+Sparky is grounded in live ElectraHub diagnostics. A model improves the wording of a response; it is never the source of truth for live charger, session, payment, subscription, or receipt state. If every configured provider is unavailable, too slow, unsafe, or unhelpful, the service returns the deterministic diagnostic answer.
+
+The provider chain is local-first:
+
+1. `vllm` serves Qwen3 8B when a GPU-backed vLLM deployment is enabled.
+2. `ollama` serves the local ElectraHub-tuned Qwen3 4B model as the dependable fallback.
+3. `gemini` is an optional, explicitly enabled hosted fallback using Gemini Flash-Lite.
+
+The router applies a short circuit-breaker cooldown after a provider failure and does not queue more than the configured number of Ollama requests. This prevents a slow model from producing gateway timeouts for every concurrent Sparky request.
+
+Hosted providers are opt-in. Before Gemini receives a prompt, the service removes emails, access tokens, UUIDs/session identifiers, payment-card-like values, phone numbers, and obvious secret assignments. Provider API keys are backend secrets and are never returned to the UI or logged.
+
+### Common settings
 
 Runtime settings:
 
 ```text
 AI_PROVIDER_ENABLED=true
-AI_PROVIDER=openai
-OPENAI_API_KEY=<backend secret only>
-OPENAI_BASE_URL=https://api.openai.com
-AI_MODEL=gpt-4.1-mini
+AI_PROVIDER_CHAIN=vllm,ollama,gemini
 AI_TEMPERATURE=0.2
-AI_MAX_OUTPUT_TOKENS=900
-AI_LLM_TIMEOUT_MS=12000
+AI_MAX_OUTPUT_TOKENS=180
+AI_PROVIDER_FAILURE_COOLDOWN_MS=30000
 ```
 
-The service sends only the redacted user message, screen/context identifiers, deterministic fallback answer, and summarized live backend facts to the LLM. It never sends bearer tokens or raw secrets to the provider. If the provider is disabled, unreachable, too slow, or returns an unsafe/unhelpful response, Sparky returns the deterministic diagnostic answer.
+### GPU-backed Qwen3 8B through vLLM
 
-## Ollama provider mode
+`k8s-platform/infrastructure/vllm` provides an OpenAI-compatible vLLM deployment for `Qwen/Qwen3-8B`. It is deliberately disabled (`replicaCount: 0`) on clusters without an allocatable NVIDIA GPU. Do not enable it on CPU-only infrastructure: it will be slower and less stable than the local 4B fallback.
+
+After assigning a GPU node with adequate VRAM and persistent model-cache storage, enable both the runtime and service route:
+
+```text
+AI_VLLM_ENABLED=true
+VLLM_BASE_URL=http://vllm:8000
+VLLM_MODEL=sparky-qwen3-8b
+AI_VLLM_TIMEOUT_MS=7000
+```
+
+### Optional Gemini Flash-Lite fallback
+
+Gemini is disabled by default. It may only be enabled after a backend-managed `GEMINI_API_KEY` is supplied through Kubernetes secret management and the data-processing decision has been approved.
+
+```text
+AI_GEMINI_ENABLED=true
+AI_HOSTED_FALLBACK_ENABLED=true
+GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com
+AI_GEMINI_TIMEOUT_MS=7000
+```
+
+For a local-only deployment, keep both flags `false`. The router then uses the local vLLM/Ollama providers only.
+
+## Local Ollama model
 
 Sparky can also run against a local or cluster-hosted Ollama model. Ollama customization is handled with `ollama/Modelfile`, which creates an ElectraHub domain-tuned runtime model from a base model and system instructions.
 
@@ -84,29 +118,40 @@ Create the local model:
 powershell -ExecutionPolicy Bypass -File .\scripts\ollama\create-electrahub-sparky.ps1
 ```
 
+The current production fallback is intentionally retained because the current production cluster has no GPU and the 8B Ollama model previously caused overloaded-origin errors.
+
 Run the service against Ollama:
 
 ```text
 AI_PROVIDER_ENABLED=true
 AI_PROVIDER=ollama
+AI_PROVIDER_CHAIN=ollama
 OLLAMA_BASE_URL=http://localhost:11434
-AI_MODEL=electrahub-sparky:4b
+OLLAMA_MODEL=electrahub-sparky:4b
+AI_OLLAMA_TIMEOUT_MS=14000
+AI_OLLAMA_MAX_CONCURRENT_REQUESTS=1
 AI_TEMPERATURE=0.12
-AI_MAX_OUTPUT_TOKENS=320
-AI_LLM_TIMEOUT_MS=30000
+AI_MAX_OUTPUT_TOKENS=180
 AI_DIAGNOSTICS_TIMEOUT_MS=1800
 AI_DIAGNOSTICS_TOTAL_TIMEOUT_MS=3000
 AI_THREAD_TTL_MS=900000
 ```
 
-Run the real-model quality suite after creating the model:
+Run the 41-case real-model quality suite after creating or changing a model:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\ollama\evaluate-sparky-prompts.ps1 -FailOnQualityIssue
+powershell -ExecutionPolicy Bypass -File .\scripts\ollama\evaluate-sparky-prompts.ps1 -MaxOutputTokens 180 -FailOnQualityIssue
 ```
 
-The suite covers every current iOS/admin suggested prompt plus critical simulator RFID, Plug and Charge, card-present, idle/unplug, and payment-authorisation scenarios. It checks that answers preserve required operational meaning and do not expose prompt content or hidden reasoning.
+The same suite can validate a GPU vLLM deployment or an explicitly approved Gemini provider:
 
-For Kubernetes, make the Ollama host reachable from `ai-support-service`, then set `AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, and `AI_MODEL=electrahub-sparky:4b`. The deterministic diagnostics remain the fallback if Ollama is unreachable or returns no usable answer.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\ollama\evaluate-sparky-prompts.ps1 -Provider Vllm -BaseUrl http://localhost:8000 -FailOnQualityIssue
+powershell -ExecutionPolicy Bypass -File .\scripts\ollama\evaluate-sparky-prompts.ps1 -Provider Gemini -BaseUrl https://generativelanguage.googleapis.com -ApiKey $env:GEMINI_API_KEY -FailOnQualityIssue
+```
+
+The suite covers every current iOS/admin suggested prompt plus critical simulator RFID, Plug and Charge, card-present, idle/unplug, payment-authorisation, notifications, pricing, subscriptions, and RBAC scenarios. It checks that answers preserve required operational meaning and do not expose prompt content or hidden reasoning.
+
+For Kubernetes, make the Ollama host reachable from `ai-support-service`, then set `AI_PROVIDER_CHAIN`, `OLLAMA_BASE_URL`, and `OLLAMA_MODEL`. The deterministic diagnostics remain the fallback if no provider returns a usable answer.
 
 `POST /api/v1/chat/messages` returns a normalized final answer for all clients. `GET /api/v1/chat/threads/{threadId}/stream?since={messageId}` streams the same rendered answer over SSE.

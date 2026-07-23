@@ -34,15 +34,14 @@ class OpenAiLlmClient implements LlmClient {
     @Override
     public boolean available() {
         return properties.providerEnabled()
-                && "openai".equalsIgnoreCase(properties.provider())
                 && !isBlank(properties.openaiApiKey());
     }
 
     @Override
     public LlmCompletion complete(LlmPrompt prompt) {
         if (!available()) {
-            log.info("OpenAI provider unavailable providerEnabled={} provider={} hasApiKey={}",
-                    properties.providerEnabled(), properties.provider(), !isBlank(properties.openaiApiKey()));
+            log.info("OpenAI provider unavailable providerEnabled={} hasApiKey={}",
+                    properties.providerEnabled(), !isBlank(properties.openaiApiKey()));
             return LlmCompletion.disabled();
         }
 
