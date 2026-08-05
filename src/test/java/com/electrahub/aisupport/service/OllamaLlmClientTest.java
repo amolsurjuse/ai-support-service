@@ -80,6 +80,7 @@ class OllamaLlmClientTest {
             assertThat(completion.answer()).contains("connector is already in use");
             assertThat(requestBody.get()).contains("\"stream\":false");
             assertThat(requestBody.get()).contains("\"think\":false");
+            assertThat(requestBody.get()).contains("\"keep_alive\":\"30m\"");
             assertThat(requestBody.get()).contains("electrahub-sparky");
             assertThat(requestBody.get()).contains("connector CON-1 has active session");
             assertThat(requestBody.get()).contains("Project knowledge");

@@ -4,6 +4,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties(AiSupportProperties.class)
+@EnableConfigurationProperties({AiSupportProperties.class, LocalAiRuntimeProperties.class})
 class AiSupportConfig {
 }

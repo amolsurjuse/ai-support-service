@@ -41,6 +41,14 @@ electrahub:
     ollama-model: ${OLLAMA_MODEL:${AI_MODEL:electrahub-sparky:4b}}
     ollama-timeout-ms: ${AI_OLLAMA_TIMEOUT_MS:${AI_LLM_TIMEOUT_MS:12000}}
     ollama-max-concurrent-requests: ${AI_OLLAMA_MAX_CONCURRENT_REQUESTS:1}
+    local-runtime:
+      ollama-keep-alive: ${OLLAMA_KEEP_ALIVE:30m}
+      warmup-enabled: ${AI_LOCAL_WARMUP_ENABLED:false}
+      warmup-timeout-ms: ${AI_LOCAL_WARMUP_TIMEOUT_MS:30000}
+      ovms-enabled: ${AI_OVMS_ENABLED:false}
+      ovms-base-url: ${OVMS_BASE_URL:http://ovms:8000}
+      ovms-model: ${OVMS_MODEL:OpenVINO/Qwen3-8B-int4-ov}
+      ovms-timeout-ms: ${AI_OVMS_TIMEOUT_MS:12000}
     gemini-enabled: ${AI_GEMINI_ENABLED:false}
     hosted-fallback-enabled: ${AI_HOSTED_FALLBACK_ENABLED:false}
     gemini-api-key: ${GEMINI_API_KEY:}

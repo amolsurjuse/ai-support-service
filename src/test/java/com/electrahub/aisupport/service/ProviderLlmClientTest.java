@@ -1,6 +1,7 @@
 package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.config.AiSupportProperties;
+import com.electrahub.aisupport.config.LocalAiRuntimeProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,39 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ProviderLlmClientTest {
+
+    @Test
+    void callsOvmsV3OpenAiCompatibleEndpoint() throws IOException {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v3/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            writeJson(exchange, 200, """
+                    {"choices":[{"message":{"content":"The charger is available for a new session."}}]}
+                    """);
+        });
+        server.start();
+        try {
+            LocalAiRuntimeProperties runtime = new LocalAiRuntimeProperties(
+                    "4h", true, 30_000, true, url(server),
+                    "OpenVINO/Qwen3-8B-int4-ov", 2_000);
+            OvmsLlmClient client = new OvmsLlmClient(
+                    properties("ovms", false, url(server), false, false, false, ""),
+                    runtime,
+                    new ObjectMapper());
+
+            LlmClient.LlmCompletion completion = client.complete(prompt());
+
+            assertThat(completion.ok()).isTrue();
+            assertThat(completion.provider()).isEqualTo("ovms");
+            assertThat(completion.model()).isEqualTo("OpenVINO/Qwen3-8B-int4-ov");
+            assertThat(requestBody.get()).contains("\"model\":\"OpenVINO/Qwen3-8B-int4-ov\"");
+            assertThat(requestBody.get()).contains("\"stream\":false");
+            assertThat(requestBody.get()).contains("\"role\":\"system\"");
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void callsVllmOpenAiCompatibleEndpoint() throws IOException {

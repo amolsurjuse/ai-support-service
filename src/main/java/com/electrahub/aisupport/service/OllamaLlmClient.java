@@ -1,6 +1,7 @@
 package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.config.AiSupportProperties;
+import com.electrahub.aisupport.config.LocalAiRuntimeProperties;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,12 +22,18 @@ class OllamaLlmClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(OllamaLlmClient.class);
 
     private final AiSupportProperties properties;
+    private final LocalAiRuntimeProperties runtimeProperties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final Semaphore requestSlots;
 
     OllamaLlmClient(AiSupportProperties properties, ObjectMapper objectMapper) {
+        this(properties, LocalAiRuntimeProperties.defaults(), objectMapper);
+    }
+
+    OllamaLlmClient(AiSupportProperties properties, LocalAiRuntimeProperties runtimeProperties, ObjectMapper objectMapper) {
         this.properties = properties;
+        this.runtimeProperties = runtimeProperties;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout())
@@ -101,7 +108,7 @@ class OllamaLlmClient implements LlmClient {
         root.put("model", properties.ollamaModel());
         root.put("stream", false);
         root.put("think", false);
-        root.put("keep_alive", "30m");
+        root.put("keep_alive", runtimeProperties.ollamaKeepAlive());
 
         ObjectNode options = objectMapper.createObjectNode();
         options.put("temperature", properties.temperature());
@@ -114,6 +121,49 @@ class OllamaLlmClient implements LlmClient {
         messages.add(message("user", promptText));
         root.set("messages", messages);
         return root.toString();
+    }
+
+    LlmCompletion warmup() {
+        if (!available()) {
+            return LlmCompletion.disabled();
+        }
+        if (!requestSlots.tryAcquire()) {
+            return LlmCompletion.failure("ollama", properties.ollamaModel(), "Ollama is busy");
+        }
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("model", properties.ollamaModel());
+        root.put("prompt", "");
+        root.put("stream", false);
+        root.put("keep_alive", runtimeProperties.ollamaKeepAlive());
+        ObjectNode options = objectMapper.createObjectNode();
+        options.put("num_predict", 1);
+        root.set("options", options);
+        long startedNanos = System.nanoTime();
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(trimTrailingSlash(properties.ollamaBaseUrl()) + "/api/generate"))
+                    .timeout(Duration.ofMillis(runtimeProperties.warmupTimeoutMs()))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(root.toString()))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info("Ollama model warmup succeeded model={} latencyMs={} keepAlive={}",
+                        properties.ollamaModel(), elapsedMs(startedNanos), runtimeProperties.ollamaKeepAlive());
+                return LlmCompletion.success("warm", "ollama", properties.ollamaModel());
+            }
+            return LlmCompletion.failure("ollama", properties.ollamaModel(),
+                    "Ollama warmup returned status " + response.statusCode());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return LlmCompletion.failure("ollama", properties.ollamaModel(), "Ollama warmup interrupted");
+        } catch (IOException | RuntimeException ex) {
+            log.warn("Ollama model warmup failed model={} latencyMs={} exception={}",
+                    properties.ollamaModel(), elapsedMs(startedNanos), ex.getClass().getSimpleName());
+            return LlmCompletion.failure("ollama", properties.ollamaModel(), ex.getMessage());
+        } finally {
+            requestSlots.release();
+        }
     }
 
     private String compactPromptText(LlmPrompt prompt) {

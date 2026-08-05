@@ -1,9 +1,11 @@
 package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.config.AiSupportProperties;
+import com.electrahub.aisupport.config.LocalAiRuntimeProperties;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
@@ -20,14 +22,22 @@ class RoutingLlmClient implements LlmClient {
     private final OpenAiLlmClient openAi;
     private final OllamaLlmClient ollama;
     private final VllmLlmClient vllm;
+    private final OvmsLlmClient ovms;
     private final GeminiLlmClient gemini;
     private final LlmProviderCircuitBreaker circuitBreaker;
 
     RoutingLlmClient(AiSupportProperties properties, ObjectMapper objectMapper, PiiRedactor redactor) {
+        this(properties, LocalAiRuntimeProperties.defaults(), objectMapper, redactor);
+    }
+
+    @Autowired
+    RoutingLlmClient(AiSupportProperties properties, LocalAiRuntimeProperties runtimeProperties,
+                     ObjectMapper objectMapper, PiiRedactor redactor) {
         this.properties = properties;
         this.openAi = new OpenAiLlmClient(properties, objectMapper);
-        this.ollama = new OllamaLlmClient(properties, objectMapper);
+        this.ollama = new OllamaLlmClient(properties, runtimeProperties, objectMapper);
         this.vllm = new VllmLlmClient(properties, objectMapper);
+        this.ovms = new OvmsLlmClient(properties, runtimeProperties, objectMapper);
         this.gemini = new GeminiLlmClient(properties, objectMapper, redactor);
         this.circuitBreaker = new LlmProviderCircuitBreaker(properties.providerFailureCooldownMs());
     }
@@ -73,9 +83,14 @@ class RoutingLlmClient implements LlmClient {
         return lastFailure;
     }
 
+    LlmCompletion warmupOllama() {
+        return ollama.warmup();
+    }
+
     private List<NamedClient> orderedClients() {
         Map<String, LlmClient> clients = Map.of(
                 "vllm", vllm,
+                "ovms", ovms,
                 "ollama", ollama,
                 "gemini", gemini,
                 "openai", openAi
