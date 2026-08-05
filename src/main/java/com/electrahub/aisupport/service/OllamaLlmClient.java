@@ -17,6 +17,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.Semaphore;
+import java.util.Iterator;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 class OllamaLlmClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(OllamaLlmClient.class);
@@ -64,7 +67,7 @@ class OllamaLlmClient implements LlmClient {
 
         try {
             String promptText = compactPromptText(prompt);
-            String body = requestBody(promptText);
+            String body = requestBody(promptText, false);
             long startedNanos = System.nanoTime();
             log.info("Ollama chat request starting model={} baseUrl={} promptChars={} requestBytes={} maxOutputTokens={} temperature={}",
                     properties.ollamaModel(), sanitizeBaseUrl(properties.ollamaBaseUrl()), promptText.length(), body.length(), maxOutputTokens(), properties.temperature());
@@ -103,10 +106,81 @@ class OllamaLlmClient implements LlmClient {
         }
     }
 
-    private String requestBody(String promptText) {
+    @Override
+    public LlmCompletion completeStreaming(LlmPrompt prompt, Consumer<String> onDelta) {
+        if (!available()) {
+            return LlmCompletion.disabled();
+        }
+        if (!requestSlots.tryAcquire()) {
+            return LlmCompletion.failure("ollama", properties.ollamaModel(), "Ollama is busy");
+        }
+
+        long startedNanos = System.nanoTime();
+        long firstTokenNanos = 0L;
+        try {
+            String promptText = compactPromptText(prompt);
+            String body = requestBody(promptText, true);
+            log.info("Ollama streaming request starting model={} baseUrl={} promptChars={} maxOutputTokens={}",
+                    properties.ollamaModel(), sanitizeBaseUrl(properties.ollamaBaseUrl()), promptText.length(), maxOutputTokens());
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(trimTrailingSlash(properties.ollamaBaseUrl()) + "/api/chat"))
+                    .timeout(timeout())
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/x-ndjson")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<Stream<String>> response = httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                response.body().close();
+                return LlmCompletion.failure("ollama", properties.ollamaModel(),
+                        "Ollama returned status " + response.statusCode());
+            }
+
+            StringBuilder answer = new StringBuilder();
+            try (Stream<String> lines = response.body()) {
+                Iterator<String> iterator = lines.iterator();
+                while (iterator.hasNext()) {
+                    String line = iterator.next();
+                    if (line == null || line.isBlank()) {
+                        continue;
+                    }
+                    JsonNode json = objectMapper.readTree(line);
+                    String delta = extractOutputText(json);
+                    if (!delta.isEmpty()) {
+                        if (firstTokenNanos == 0L) {
+                            firstTokenNanos = System.nanoTime();
+                            log.info("Ollama first token model={} timeToFirstTokenMs={}",
+                                    properties.ollamaModel(), elapsedMs(startedNanos));
+                        }
+                        answer.append(delta);
+                        onDelta.accept(delta);
+                    }
+                }
+            }
+            if (answer.isEmpty()) {
+                return LlmCompletion.failure("ollama", properties.ollamaModel(),
+                        "Ollama response did not include output text");
+            }
+            log.info("Ollama streaming request succeeded model={} latencyMs={} answerChars={} streamed={}",
+                    properties.ollamaModel(), elapsedMs(startedNanos), answer.length(), firstTokenNanos != 0L);
+            return LlmCompletion.success(answer.toString(), "ollama", properties.ollamaModel());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return LlmCompletion.failure("ollama", properties.ollamaModel(), "Ollama request interrupted");
+        } catch (IOException | RuntimeException ex) {
+            log.warn("Ollama streaming request exception exception={} message={}",
+                    ex.getClass().getSimpleName(), ex.getMessage());
+            return LlmCompletion.failure("ollama", properties.ollamaModel(), ex.getMessage());
+        } finally {
+            requestSlots.release();
+        }
+    }
+
+    private String requestBody(String promptText, boolean stream) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", properties.ollamaModel());
-        root.put("stream", false);
+        root.put("stream", stream);
         root.put("think", false);
         root.put("keep_alive", runtimeProperties.ollamaKeepAlive());
 

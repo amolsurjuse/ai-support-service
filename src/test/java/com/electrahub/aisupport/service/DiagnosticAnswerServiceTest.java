@@ -14,8 +14,27 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class DiagnosticAnswerServiceTest {
+
+    @Test
+    void answersIdentityWithoutDiagnosticsOrChargerContext() {
+        BackendDiagnosticsClient diagnosticsClient = mock(BackendDiagnosticsClient.class);
+        LlmClient llmClient = mock(LlmClient.class);
+        DiagnosticAnswerService service = new DiagnosticAnswerService(
+                properties(), new PiiRedactor(), diagnosticsClient, llmClient);
+        ContextPayload context = new ContextPayload(
+                "chargerDetail", "charger", null, "EH-US-CHG-0001", "CON-US-0001", "LOC-1", null, "driver");
+
+        DiagnosticAnswerService.DiagnosticAnswer answer = service.answer(
+                "What is your name?", context, "Bearer token");
+
+        assertThat(answer.toolName()).isEqualTo("assistant_identity");
+        assertThat(service.renderForClient(answer)).isEqualTo("I'm Sparky, ElectraHub's EV charging assistant.");
+        assertThat(answer.text()).doesNotContain("EH-US-CHG-0001", "CON-US-0001", "LOC-1");
+        verifyNoInteractions(diagnosticsClient, llmClient);
+    }
 
     @Test
     void usesDriverLanguageForEvOwnerIdleStopFlow() {

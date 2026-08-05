@@ -10,11 +10,48 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OllamaLlmClientTest {
+
+    @Test
+    void streamsEachOllamaNdjsonDelta() throws IOException {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/api/chat", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = ("{\"message\":{\"content\":\"The connector \"},\"done\":false}\n"
+                    + "{\"message\":{\"content\":\"is available.\"},\"done\":false}\n"
+                    + "{\"message\":{\"content\":\"\"},\"done\":true}\n").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson");
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OllamaLlmClient client = new OllamaLlmClient(
+                    properties("http://localhost:" + server.getAddress().getPort()), new ObjectMapper());
+            List<String> deltas = new ArrayList<>();
+
+            LlmClient.LlmCompletion completion = client.completeStreaming(new LlmClient.LlmPrompt(
+                    "Is this charger available?",
+                    new ContextPayload("chargerDetail", "charger", null, "EH-1", "CON-1", "LOC-1", null, "driver"),
+                    new DiagnosticAnswerService.DiagnosticAnswer(
+                            "check_charger_availability", "The connector appears available.", "connector: CON-1"),
+                    new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of())), deltas::add);
+
+            assertThat(completion.ok()).isTrue();
+            assertThat(completion.answer()).isEqualTo("The connector is available.");
+            assertThat(deltas).containsExactly("The connector ", "is available.");
+            assertThat(requestBody.get()).contains("\"stream\":true");
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     void callsChatApiAndExtractsMessageContent() throws IOException {
@@ -166,5 +203,17 @@ class OllamaLlmClientTest {
 
         assertThat(availablePrompt).contains("must not carry a transaction id");
         assertThat(rbacPrompt).contains("Records from another location or operator must never be visible");
+    }
+
+    private static AiSupportProperties properties(String ollamaBaseUrl) {
+        return new AiSupportProperties(
+                true, "ollama", "support@electrahub.com", 0,
+                "http://session-service", "http://payment-service", "http://charger-service", "http://ocpp-service",
+                100, 250, 900_000, "", "https://api.openai.com", ollamaBaseUrl,
+                "electrahub-sparky", 0.2, 180, 2_000, "ollama",
+                false, "http://vllm:8000", "sparky-qwen3-8b", 2_000,
+                true, "electrahub-sparky", 2_000, 1,
+                false, false, "", "https://generativelanguage.googleapis.com",
+                "gemini-2.5-flash-lite", 2_000, 30_000L);
     }
 }

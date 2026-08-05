@@ -13,6 +13,8 @@ import java.text.NumberFormat;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Set;
+import java.util.function.Consumer;
 
 @Service
 public class DiagnosticAnswerService {
@@ -23,6 +25,10 @@ public class DiagnosticAnswerService {
     private static final Pattern CONNECTOR_PATTERN = Pattern.compile(
             "connector\\s+(\\S+)\\s+is\\s+(\\S+)\\s+available=(true|false)",
             Pattern.CASE_INSENSITIVE);
+    private static final Set<String> LIVE_STREAM_TOOLS = Set.of(
+            "driver_support_context", "check_charger_availability", "diagnose_charging_start",
+            "diagnose_session_state", "check_charger_liveness", "find_charger_alternatives",
+            "diagnose_idle_remote_stop", "prepare_remote_stop", "diagnose_simulator_secure_unplug");
     private final AiSupportProperties properties;
     private final PiiRedactor redactor;
     private final BackendDiagnosticsClient diagnosticsClient;
@@ -52,7 +58,74 @@ public class DiagnosticAnswerService {
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
-        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = diagnosticsClient.collect(safeContext, authorization);
+        Optional<DiagnosticAnswer> conversational = conversationalAnswer(message);
+        if (conversational.isPresent()) {
+            return conversational.get();
+        }
+        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(message, safeContext, authorization);
+
+        DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics);
+        return llmAnswerOrFallback(userMessage, safeContext, diagnostics, fallback);
+    }
+
+    public DiagnosticAnswer answerStreaming(String userMessage,
+                                            ContextPayload context,
+                                            String authorization,
+                                            Consumer<String> onDelta) {
+        String message = redactor.redact(userMessage).toLowerCase();
+        ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        Optional<DiagnosticAnswer> conversational = conversationalAnswer(message);
+        if (conversational.isPresent()) {
+            onDelta.accept(conversational.get().text());
+            return conversational.get();
+        }
+        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(message, safeContext, authorization);
+        DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics);
+        if (!llmClient.available()) {
+            onDelta.accept(fallback.text());
+            return fallback;
+        }
+
+        boolean live = LIVE_STREAM_TOOLS.contains(fallback.toolName());
+        StringBuilder emitted = new StringBuilder();
+        Consumer<String> streamConsumer = delta -> {
+            emitted.append(delta);
+            onDelta.accept(delta);
+        };
+        LlmClient.LlmPrompt prompt = new LlmClient.LlmPrompt(
+                redactor.redact(userMessage), safeContext, fallback, diagnostics);
+        LlmClient.LlmCompletion completion = live
+                ? llmClient.completeStreaming(prompt, streamConsumer)
+                : llmClient.complete(prompt);
+        if (!completion.ok() || completion.answer().isBlank()) {
+            if (emitted.isEmpty()) {
+                onDelta.accept(fallback.text());
+            }
+            return fallback;
+        }
+        SparkyAnswerQualityGuard.Evaluation evaluation = qualityGuard.evaluate(
+                completion.answer(), fallback, userMessage, safeContext);
+        if (!evaluation.accepted()) {
+            log.warn("Sparky streaming quality guard rejected provider={} model={} tool={} rejection={} alreadyEmitted={}",
+                    completion.provider(), completion.model(), fallback.toolName(), evaluation.reason(), !emitted.isEmpty());
+            if (emitted.isEmpty()) {
+                onDelta.accept(fallback.text());
+                return fallback;
+            }
+            return new DiagnosticAnswer(fallback.toolName(), completion.answer(), fallback.contextSummary());
+        }
+        if (!live) {
+            onDelta.accept(evaluation.answer());
+        }
+        log.info("Sparky streamed LLM answer provider={} model={} tool={} answerChars={}",
+                completion.provider(), completion.model(), fallback.toolName(), evaluation.answer().length());
+        return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
+    }
+
+    private DiagnosticAnswer deterministicAnswer(String message,
+                                                  String userMessage,
+                                                  ContextPayload safeContext,
+                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
 
         DiagnosticAnswer fallback;
         if (isRevenueDashboardQuestion(message, safeContext)) {
@@ -121,7 +194,50 @@ public class DiagnosticAnswerService {
             fallback = generalChargingHelp(safeContext, diagnostics);
         }
 
-        return llmAnswerOrFallback(userMessage, safeContext, diagnostics, fallback);
+        return fallback;
+    }
+
+    private Optional<DiagnosticAnswer> conversationalAnswer(String message) {
+        String normalized = message.replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
+        if (normalized.matches("(?:what is|whats|what s) your name")
+                || normalized.matches("who are you")
+                || normalized.matches("tell me your name")) {
+            return Optional.of(new DiagnosticAnswer(
+                    "assistant_identity",
+                    "I'm Sparky, ElectraHub's EV charging assistant.",
+                    ""));
+        }
+        if (normalized.length() <= 40 && normalized.matches("(?:hi|hello|hey|good morning|good afternoon|good evening)(?: sparky)?")) {
+            return Optional.of(new DiagnosticAnswer(
+                    "assistant_greeting",
+                    "Hi! I'm Sparky. How can I help with your ElectraHub charging experience?",
+                    ""));
+        }
+        if (normalized.contains("what can you do") || normalized.contains("how can you help")) {
+            return Optional.of(new DiagnosticAnswer(
+                    "assistant_capabilities",
+                    "I can help with charger availability, charging sessions, payments, receipts, and troubleshooting.",
+                    ""));
+        }
+        if (normalized.length() <= 40 && normalized.matches("(?:thanks|thank you|thank you sparky|thanks sparky)")) {
+            return Optional.of(new DiagnosticAnswer(
+                    "assistant_courtesy",
+                    "You're welcome! Ask me anytime you need help with ElectraHub charging.",
+                    ""));
+        }
+        return Optional.empty();
+    }
+
+    private BackendDiagnosticsClient.DiagnosticsSnapshot collectDiagnostics(String message,
+                                                                             ContextPayload context,
+                                                                             String authorization) {
+        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = diagnosticsClient.collect(message, context, authorization);
+        if (diagnostics == null) {
+            diagnostics = diagnosticsClient.collect(context, authorization);
+        }
+        return diagnostics == null
+                ? new BackendDiagnosticsClient.DiagnosticsSnapshot(java.util.List.of(), java.util.List.of())
+                : diagnostics;
     }
 
     private DiagnosticAnswer llmAnswerOrFallback(String userMessage,

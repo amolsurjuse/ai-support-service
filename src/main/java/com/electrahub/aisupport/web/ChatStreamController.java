@@ -1,13 +1,17 @@
 package com.electrahub.aisupport.web;
 
-import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.StreamEvent;
 import com.electrahub.aisupport.service.ChatThreadStore;
+
+import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,39 +25,55 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/v1/chat")
 class ChatStreamController {
     private final ChatThreadStore threadStore;
-    private final AiSupportProperties properties;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    ChatStreamController(ChatThreadStore threadStore, AiSupportProperties properties) {
+    ChatStreamController(ChatThreadStore threadStore) {
         this.threadStore = threadStore;
-        this.properties = properties;
     }
 
     @GetMapping(path = "/threads/{threadId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter stream(@PathVariable UUID threadId,
                       @RequestParam(name = "since") UUID messageId) {
-        SseEmitter emitter = new SseEmitter(60_000L);
+        SseEmitter emitter = new SseEmitter(120_000L);
         executor.submit(() -> streamAnswer(threadId, messageId, emitter));
         return emitter;
     }
 
     private void streamAnswer(UUID threadId, UUID messageId, SseEmitter emitter) {
         try {
-            var pending = threadStore.find(messageId)
+            var stored = threadStore.find(messageId)
                     .filter(message -> message.pending().threadId().equals(threadId))
                     .orElse(null);
-            if (pending == null || pending.answer() == null) {
+            if (stored == null) {
                 send(emitter, "error", StreamEvent.error(messageId, "MESSAGE_NOT_FOUND", "I could not find that chat message. Please send it again."));
                 emitter.complete();
                 return;
             }
 
-            var answer = pending.answer();
-            send(emitter, "tool_call", StreamEvent.toolCall(messageId, answer.tool()));
-            send(emitter, "tool_result", StreamEvent.toolResult(messageId, answer.tool(), true, answer.latencyMs()));
-
-            streamText(messageId, answer.text(), emitter);
-            send(emitter, "done", StreamEvent.done(messageId));
+            int offset = 0;
+            Instant deadline = Instant.now().plusSeconds(115);
+            while (Instant.now().isBefore(deadline)) {
+                List<StreamEvent> events = threadStore.awaitEvents(messageId, offset, Duration.ofSeconds(10));
+                if (events.isEmpty()) {
+                    var snapshot = threadStore.find(messageId).orElse(null);
+                    if (offset == 0 && snapshot != null && snapshot.answer() != null && snapshot.events().isEmpty()) {
+                        streamLegacyAnswer(messageId, snapshot.answer(), emitter);
+                        emitter.complete();
+                        return;
+                    }
+                    emitter.send(SseEmitter.event().comment("keepalive"));
+                    continue;
+                }
+                for (StreamEvent event : events) {
+                    send(emitter, eventName(event), event);
+                    offset++;
+                    if ("DONE".equals(event.type()) || "ERROR".equals(event.type())) {
+                        emitter.complete();
+                        return;
+                    }
+                }
+            }
+            send(emitter, "error", StreamEvent.error(messageId, "STREAM_TIMEOUT", "Sparky took too long to finish the response."));
             emitter.complete();
         } catch (Exception ex) {
             try {
@@ -65,19 +85,31 @@ class ChatStreamController {
         }
     }
 
-    private void streamText(UUID messageId, String text, SseEmitter emitter) throws IOException, InterruptedException {
-        String[] tokens = text.split("(?<=\\s)");
-        for (String token : tokens) {
-            if (!token.isEmpty()) {
-                send(emitter, "token", StreamEvent.token(messageId, token));
-                if (properties.streamTokenDelayMs() > 0) {
-                    Thread.sleep(properties.streamTokenDelayMs());
-                }
-            }
+    private void streamLegacyAnswer(UUID messageId, ChatThreadStore.CompletedAnswer answer, SseEmitter emitter) throws IOException {
+        if (answer.tool() != null && !answer.tool().startsWith("assistant_") && !"driver_support_context".equals(answer.tool())) {
+            send(emitter, "tool_call", StreamEvent.toolCall(messageId, answer.tool()));
+            send(emitter, "tool_result", StreamEvent.toolResult(messageId, answer.tool(), true, answer.latencyMs()));
         }
+        send(emitter, "token", StreamEvent.token(messageId, answer.text()));
+        send(emitter, "done", StreamEvent.done(messageId));
+    }
+
+    private static String eventName(StreamEvent event) {
+        return switch (event.type()) {
+            case "TOKEN" -> "token";
+            case "TOOL_CALL" -> "tool_call";
+            case "TOOL_RESULT" -> "tool_result";
+            case "DONE" -> "done";
+            default -> "error";
+        };
     }
 
     private void send(SseEmitter emitter, String eventName, StreamEvent event) throws IOException {
         emitter.send(SseEmitter.event().name(eventName).data(event));
+    }
+
+    @PreDestroy
+    void stopStreamExecutor() {
+        executor.close();
     }
 }

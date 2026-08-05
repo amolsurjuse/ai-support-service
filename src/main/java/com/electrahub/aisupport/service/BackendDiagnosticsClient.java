@@ -52,16 +52,36 @@ public class BackendDiagnosticsClient {
     }
 
     public DiagnosticsSnapshot collect(ContextPayload context, String authorization) {
+        return collect(null, context, authorization);
+    }
+
+    public DiagnosticsSnapshot collect(String userMessage, ContextPayload context, String authorization) {
         ContextPayload safeContext = context == null
                 ? new ContextPayload(null, null, null, null, null, null, null, "driver")
                 : context;
-        List<NamedDiagnosticTask> tasks = List.of(
-                task("payment", (facts, gaps) -> readPaymentState(authorization, facts, gaps)),
-                task("session", (facts, gaps) -> readSessionState(safeContext, authorization, facts, gaps)),
-                task("charger", (facts, gaps) -> readChargerState(safeContext, facts, gaps)),
-                task("ocpp connection", (facts, gaps) -> readOcppConnection(safeContext, facts, gaps)),
-                task("ocpp history", (facts, gaps) -> readOcppHistory(safeContext, facts, gaps))
-        );
+        String message = userMessage == null ? null : userMessage.toLowerCase(Locale.ROOT);
+        List<NamedDiagnosticTask> tasks = new ArrayList<>();
+        if (message == null || containsAny(message, "payment", "wallet", "card", "balance", "receipt", "billing", "cost", "price", "fee", "refund", "hold")) {
+            tasks.add(task("payment", (facts, gaps) -> readPaymentState(authorization, facts, gaps)));
+        }
+        if (message == null || !isBlank(safeContext.sessionId())
+                || containsAny(message, "session", "charging", "start", "stop", "stuck", "preparing", "active", "idle", "receipt", "meter", "energy")) {
+            tasks.add(task("session", (facts, gaps) -> readSessionState(safeContext, authorization, facts, gaps)));
+        }
+        if (message == null || containsAny(message, "charger", "connector", "available", "availability", "online", "offline", "heartbeat", "start", "charging", "power", "station")) {
+            tasks.add(task("charger", (facts, gaps) -> readChargerState(safeContext, facts, gaps)));
+        }
+        if (message == null || containsAny(message, "ocpp", "online", "offline", "heartbeat", "start fail", "failed to start", "stuck", "preparing", "simulator", "unplug")) {
+            tasks.add(task("ocpp connection", (facts, gaps) -> readOcppConnection(safeContext, facts, gaps)));
+            tasks.add(task("ocpp history", (facts, gaps) -> readOcppHistory(safeContext, facts, gaps)));
+        }
+
+        if (tasks.isEmpty()) {
+            log.info("Sparky diagnostics skipped because the question does not require live backend state");
+            return new DiagnosticsSnapshot(List.of(), List.of());
+        }
+        log.info("Sparky diagnostics selected tasks={} questionChars={}",
+                tasks.stream().map(NamedDiagnosticTask::name).toList(), message == null ? 0 : message.length());
 
         boolean timedOut = false;
         try {
@@ -606,6 +626,15 @@ public class BackendDiagnosticsClient {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static boolean containsAny(String value, String... needles) {
+        for (String needle : needles) {
+            if (value.contains(needle)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String enabledLabel(JsonNode node) {

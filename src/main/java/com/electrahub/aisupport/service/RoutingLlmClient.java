@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Service
 class RoutingLlmClient implements LlmClient {
@@ -50,6 +51,15 @@ class RoutingLlmClient implements LlmClient {
 
     @Override
     public LlmCompletion complete(LlmPrompt prompt) {
+        return completeWith(prompt, null);
+    }
+
+    @Override
+    public LlmCompletion completeStreaming(LlmPrompt prompt, Consumer<String> onDelta) {
+        return completeWith(prompt, onDelta);
+    }
+
+    private LlmCompletion completeWith(LlmPrompt prompt, Consumer<String> onDelta) {
         LlmCompletion lastFailure = LlmCompletion.disabled();
         boolean candidateWasConfigured = false;
         for (NamedClient candidate : orderedClients()) {
@@ -62,7 +72,9 @@ class RoutingLlmClient implements LlmClient {
                 continue;
             }
 
-            LlmCompletion completion = candidate.client().complete(prompt);
+            LlmCompletion completion = onDelta == null
+                    ? candidate.client().complete(prompt)
+                    : candidate.client().completeStreaming(prompt, onDelta);
             if (completion.ok() && !completion.answer().isBlank()) {
                 circuitBreaker.recordSuccess(candidate.name());
                 return completion;
