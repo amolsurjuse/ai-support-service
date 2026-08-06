@@ -12,7 +12,8 @@ import java.util.Set;
 @Component
 public class AiToolAuthorizationService {
     private static final Set<String> ADMIN_ROLES = Set.of(
-            "SYSTEM_ADMIN", "TENANT_ADMIN", "ENTERPRISE_ADMIN", "NETWORK_ADMIN", "LOCATION_ADMIN", "SUPPORT");
+            "SYSTEM_ADMIN", "TENANT_ADMIN", "ENTERPRISE_ADMIN", "NETWORK_ADMIN", "LOCATION_ADMIN", "SUPPORT",
+            "ADMIN_READ_ONLY", "ENTERPRISE", "NETWORK", "LOCATION");
 
     public void requireAudienceAccess(IdentityContext identity, ContextPayload context) {
         if (isAdministrativeAudience(context) && !isAdministrator(identity)) {

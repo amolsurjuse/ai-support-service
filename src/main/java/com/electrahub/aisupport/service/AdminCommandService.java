@@ -1,0 +1,71 @@
+package com.electrahub.aisupport.service;
+
+import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
+import com.electrahub.aisupport.security.AiToolAuthorizationService;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
+import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Locale;
+import java.util.Optional;
+
+@Service
+public class AdminCommandService {
+    private static final Logger log = LoggerFactory.getLogger(AdminCommandService.class);
+    private final AdminCommandPlanner planner;
+    private final AdminToolRegistry registry;
+    private final AdminReadOnlyToolClient client;
+    private final AiToolAuthorizationService authorizationService;
+
+    public AdminCommandService(AdminCommandPlanner planner,
+                               AdminToolRegistry registry,
+                               AdminReadOnlyToolClient client,
+                               AiToolAuthorizationService authorizationService) {
+        this.planner = planner;
+        this.registry = registry;
+        this.client = client;
+        this.authorizationService = authorizationService;
+    }
+
+    public Optional<DiagnosticAnswerService.DiagnosticAnswer> answer(String message,
+                                                                     ContextPayload context,
+                                                                     String authorization,
+                                                                     IdentityContext identity) {
+        if (!isAdminAudience(context)) {
+            return Optional.empty();
+        }
+        authorizationService.requireAudienceAccess(identity, context);
+        Optional<AdminCommandPlanner.Plan> planned = planner.plan(message);
+        if (planned.isEmpty()) {
+            return Optional.empty();
+        }
+        AdminCommandPlanner.Plan plan = planned.get();
+        if (plan.mutation()) {
+            return Optional.of(new DiagnosticAnswerService.DiagnosticAnswer(
+                    "admin.mutation.requires-approval",
+                    "That request would change production data. Admin write commands are not enabled yet; no action was taken.",
+                    "tenant-scoped admin policy"));
+        }
+        AdminToolRegistry.ToolDefinition tool = registry.require(plan.toolId());
+        try {
+            var payload = client.execute(tool, plan, authorization);
+            return Optional.of(new DiagnosticAnswerService.DiagnosticAnswer(
+                    tool.auditName(), client.summarize(tool, payload), tool.description()));
+        } catch (RuntimeException ex) {
+            log.warn("Tenant-scoped admin tool failed tool={} errorType={}", tool.auditName(), ex.getClass().getSimpleName());
+            return Optional.of(new DiagnosticAnswerService.DiagnosticAnswer(
+                    tool.auditName() + ".error",
+                    "I could not complete that scoped admin query. Please verify your access scope and try again.",
+                    tool.description()));
+        }
+    }
+
+    private static boolean isAdminAudience(ContextPayload context) {
+        if (context == null || context.audience() == null) {
+            return false;
+        }
+        String audience = context.audience().toLowerCase(Locale.ROOT);
+        return audience.contains("admin") || audience.contains("support") || audience.contains("csr");
+    }
+}

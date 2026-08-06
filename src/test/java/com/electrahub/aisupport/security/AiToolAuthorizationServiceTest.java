@@ -46,6 +46,15 @@ class AiToolAuthorizationServiceTest {
     }
 
     @Test
+    void gatewayScopedAdminRolesCanUseAdminAudience() {
+        for (String role : Set.of("ADMIN_READ_ONLY", "ENTERPRISE", "NETWORK", "LOCATION")) {
+            IdentityContext admin = identity("tenant-a", "admin-a", role, "USER");
+            authorization.requireAudienceAccess(admin, context("admin"));
+            assertThat(authorization.isAdministrator(admin)).isTrue();
+        }
+    }
+
+    @Test
     void driverCannotEscalateByChangingAudience() {
         IdentityContext driver = identity("tenant-a", "driver-a", "DRIVER", "USER");
 

@@ -35,13 +35,22 @@ public class DiagnosticAnswerService {
     private final BackendDiagnosticsClient diagnosticsClient;
     private final LlmClient llmClient;
     private final SparkyAnswerQualityGuard qualityGuard;
+    private final AdminCommandService adminCommandService;
 
     @Autowired
     DiagnosticAnswerService(AiSupportProperties properties,
                             PiiRedactor redactor,
                             BackendDiagnosticsClient diagnosticsClient,
+                            LlmClient llmClient,
+                            AdminCommandService adminCommandService) {
+        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), adminCommandService);
+    }
+
+    DiagnosticAnswerService(AiSupportProperties properties,
+                            PiiRedactor redactor,
+                            BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient) {
-        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard());
+        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), null);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -49,11 +58,21 @@ public class DiagnosticAnswerService {
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient,
                             SparkyAnswerQualityGuard qualityGuard) {
+        this(properties, redactor, diagnosticsClient, llmClient, qualityGuard, null);
+    }
+
+    DiagnosticAnswerService(AiSupportProperties properties,
+                            PiiRedactor redactor,
+                            BackendDiagnosticsClient diagnosticsClient,
+                            LlmClient llmClient,
+                            SparkyAnswerQualityGuard qualityGuard,
+                            AdminCommandService adminCommandService) {
         this.properties = properties;
         this.redactor = redactor;
         this.diagnosticsClient = diagnosticsClient;
         this.llmClient = llmClient;
         this.qualityGuard = qualityGuard;
+        this.adminCommandService = adminCommandService;
     }
 
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
@@ -64,6 +83,10 @@ public class DiagnosticAnswerService {
                                    IdentityContext identity) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        Optional<DiagnosticAnswer> adminAnswer = answerAdminCommand(userMessage, safeContext, authorization, identity);
+        if (adminAnswer.isPresent()) {
+            return adminAnswer.get();
+        }
         Optional<DiagnosticAnswer> conversational = conversationalAnswer(message);
         if (conversational.isPresent()) {
             return conversational.get();
@@ -89,6 +112,11 @@ public class DiagnosticAnswerService {
                                             Consumer<String> onDelta) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        Optional<DiagnosticAnswer> adminAnswer = answerAdminCommand(userMessage, safeContext, authorization, identity);
+        if (adminAnswer.isPresent()) {
+            onDelta.accept(adminAnswer.get().text());
+            return adminAnswer.get();
+        }
         Optional<DiagnosticAnswer> conversational = conversationalAnswer(message);
         if (conversational.isPresent()) {
             onDelta.accept(conversational.get().text());
@@ -1163,6 +1191,15 @@ public class DiagnosticAnswerService {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private Optional<DiagnosticAnswer> answerAdminCommand(String message,
+                                                           ContextPayload context,
+                                                           String authorization,
+                                                           IdentityContext identity) {
+        return adminCommandService == null
+                ? Optional.empty()
+                : adminCommandService.answer(message, context, authorization, identity);
     }
 
     private static IdentityContext legacyIdentity(String authorization) {
