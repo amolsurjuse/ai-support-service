@@ -2,6 +2,9 @@ package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
+import com.electrahub.aisupport.security.AiToolAuthorizationService;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
+import com.electrahub.aisupport.security.TrustedIdentityContextSigner;
 
 import jakarta.annotation.PreDestroy;
 
@@ -40,12 +43,22 @@ public class BackendDiagnosticsClient {
 
     private final AiSupportProperties properties;
     private final ObjectMapper objectMapper;
+    private final AiToolAuthorizationService toolAuthorization;
+    private final TrustedIdentityContextSigner identitySigner;
+    private final AiAuditService auditService;
     private final HttpClient httpClient;
     private final ExecutorService diagnosticsExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public BackendDiagnosticsClient(AiSupportProperties properties, ObjectMapper objectMapper) {
+    public BackendDiagnosticsClient(AiSupportProperties properties,
+                                    ObjectMapper objectMapper,
+                                    AiToolAuthorizationService toolAuthorization,
+                                    TrustedIdentityContextSigner identitySigner,
+                                    AiAuditService auditService) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.toolAuthorization = toolAuthorization;
+        this.identitySigner = identitySigner;
+        this.auditService = auditService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout())
                 .build();
@@ -56,24 +69,36 @@ public class BackendDiagnosticsClient {
     }
 
     public DiagnosticsSnapshot collect(String userMessage, ContextPayload context, String authorization) {
+        return collect(userMessage, context, authorization, legacyIdentity(authorization));
+    }
+
+    public DiagnosticsSnapshot collect(String userMessage, ContextPayload context, String authorization,
+                                       IdentityContext identity) {
         ContextPayload safeContext = context == null
                 ? new ContextPayload(null, null, null, null, null, null, null, "driver")
                 : context;
         String message = userMessage == null ? null : userMessage.toLowerCase(Locale.ROOT);
+        DiagnosticRequestContext requestContext = new DiagnosticRequestContext(authorization, identity);
+        toolAuthorization.requireAudienceAccess(identity, safeContext);
         List<NamedDiagnosticTask> tasks = new ArrayList<>();
         if (message == null || containsAny(message, "payment", "wallet", "card", "balance", "receipt", "billing", "cost", "price", "fee", "refund", "hold")) {
-            tasks.add(task("payment", (facts, gaps) -> readPaymentState(authorization, facts, gaps)));
+            addAuthorizedTask(tasks, "payment", requestContext, safeContext,
+                    (facts, gaps) -> readPaymentState(requestContext, facts, gaps));
         }
         if (message == null || !isBlank(safeContext.sessionId())
                 || containsAny(message, "session", "charging", "start", "stop", "stuck", "preparing", "active", "idle", "receipt", "meter", "energy")) {
-            tasks.add(task("session", (facts, gaps) -> readSessionState(safeContext, authorization, facts, gaps)));
+            addAuthorizedTask(tasks, "session", requestContext, safeContext,
+                    (facts, gaps) -> readSessionState(safeContext, requestContext, facts, gaps));
         }
         if (message == null || containsAny(message, "charger", "connector", "available", "availability", "online", "offline", "heartbeat", "start", "charging", "power", "station")) {
-            tasks.add(task("charger", (facts, gaps) -> readChargerState(safeContext, facts, gaps)));
+            addAuthorizedTask(tasks, "charger", requestContext, safeContext,
+                    (facts, gaps) -> readChargerState(safeContext, requestContext, facts, gaps));
         }
         if (message == null || containsAny(message, "ocpp", "online", "offline", "heartbeat", "start fail", "failed to start", "stuck", "preparing", "simulator", "unplug")) {
-            tasks.add(task("ocpp connection", (facts, gaps) -> readOcppConnection(safeContext, facts, gaps)));
-            tasks.add(task("ocpp history", (facts, gaps) -> readOcppHistory(safeContext, facts, gaps)));
+            addAuthorizedTask(tasks, "ocpp connection", requestContext, safeContext,
+                    (facts, gaps) -> readOcppConnection(safeContext, requestContext, facts, gaps));
+            addAuthorizedTask(tasks, "ocpp history", requestContext, safeContext,
+                    (facts, gaps) -> readOcppHistory(safeContext, requestContext, facts, gaps));
         }
 
         if (tasks.isEmpty()) {
@@ -118,27 +143,56 @@ public class BackendDiagnosticsClient {
         diagnosticsExecutor.close();
     }
 
-    private NamedDiagnosticTask task(String name, DiagnosticReader reader) {
+    private void addAuthorizedTask(List<NamedDiagnosticTask> tasks,
+                                   String name,
+                                   DiagnosticRequestContext requestContext,
+                                   ContextPayload context,
+                                   DiagnosticReader reader) {
+        if (toolAuthorization.canRunDiagnostic(requestContext.identity(), context, name)) {
+            tasks.add(task(name, requestContext.identity(), reader));
+        } else {
+            auditService.diagnosticCompleted(requestContext.identity(), name, 0, "DENIED");
+        }
+    }
+
+    private NamedDiagnosticTask task(String name, IdentityContext identity, DiagnosticReader reader) {
         return new NamedDiagnosticTask(name, CompletableFuture.supplyAsync(() -> {
+            long startedNanos = System.nanoTime();
             List<String> facts = new ArrayList<>();
             List<String> gaps = new ArrayList<>();
             try {
                 reader.collect(facts, gaps);
+                int latencyMs = elapsedMs(startedNanos);
+                auditService.diagnosticCompleted(identity, name, latencyMs,
+                        gaps.isEmpty() ? "SUCCESS" : "PARTIAL");
             } catch (RuntimeException ex) {
                 log.warn("Sparky {} diagnostic failed type={}", name, ex.getClass().getSimpleName());
                 gaps.add(name + " diagnostics failed");
+                auditService.diagnosticCompleted(identity, name, elapsedMs(startedNanos), "FAILURE");
             }
             return new DiagnosticSection(List.copyOf(facts), List.copyOf(gaps));
         }, diagnosticsExecutor));
     }
 
     public ChargerAlternatives findChargerAlternatives(ContextPayload context, String userMessage, int limit) {
+        return findChargerAlternatives(context, userMessage, limit, legacyIdentity(null));
+    }
+
+    public ChargerAlternatives findChargerAlternatives(ContextPayload context, String userMessage, int limit,
+                                                       IdentityContext identity) {
         ContextPayload safeContext = context == null
                 ? new ContextPayload(null, null, null, null, null, null, null, "driver")
                 : context;
         String requestedStandard = requestedConnectorStandard(userMessage);
-        Optional<ReferencePoint> reference = readReferencePoint(safeContext);
-        List<ChargerAlternative> alternatives = readAvailableAlternatives(safeContext, requestedStandard, reference)
+        toolAuthorization.requireAudienceAccess(identity, safeContext);
+        DiagnosticRequestContext requestContext = new DiagnosticRequestContext(null, identity);
+        if (!toolAuthorization.canRunDiagnostic(identity, safeContext, "charger")) {
+            auditService.diagnosticCompleted(identity, "charger alternatives", 0, "DENIED");
+            return new ChargerAlternatives(connectorLabel(requestedStandard), "", List.of());
+        }
+        Optional<ReferencePoint> reference = readReferencePoint(safeContext, requestContext);
+        List<ChargerAlternative> alternatives = readAvailableAlternatives(
+                safeContext, requestedStandard, reference, requestContext)
                 .stream()
                 .sorted(Comparator
                         .comparing((ChargerAlternative alternative) -> alternative.distanceMiles() == null
@@ -155,12 +209,12 @@ public class BackendDiagnosticsClient {
         );
     }
 
-    private void readPaymentState(String authorization, List<String> facts, List<String> gaps) {
-        if (isBlank(authorization)) {
+    private void readPaymentState(DiagnosticRequestContext requestContext, List<String> facts, List<String> gaps) {
+        if (isBlank(requestContext.authorization())) {
             gaps.add("payment state skipped because the request did not include a bearer token");
             return;
         }
-        get(properties.paymentServiceUrl(), "/api/v1/payment/state", authorization)
+        get(properties.paymentServiceUrl(), "/api/v1/payment/state", requestContext)
                 .ifPresentOrElse(json -> {
                     JsonNode wallet = json.path("wallet");
                     if (!wallet.isMissingNode()) {
@@ -172,20 +226,21 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("payment state was not reachable"));
     }
 
-    private void readSessionState(ContextPayload context, String authorization, List<String> facts, List<String> gaps) {
-        if (isBlank(authorization)) {
+    private void readSessionState(ContextPayload context, DiagnosticRequestContext requestContext,
+                                  List<String> facts, List<String> gaps) {
+        if (isBlank(requestContext.authorization())) {
             gaps.add("active session lookup skipped because the request did not include a bearer token");
             return;
         }
         if (!isBlank(context.sessionId())) {
-            get(properties.sessionServiceUrl(), "/api/v1/sessions/" + encode(context.sessionId()) + "/current", authorization)
+            get(properties.sessionServiceUrl(), "/api/v1/sessions/" + encode(context.sessionId()) + "/current", requestContext)
                     .ifPresentOrElse(session -> describeActiveSession("current session", session, facts),
                             () -> gaps.add("current session " + context.sessionId() + " was not reachable"));
-            readMeterValues(context.sessionId(), authorization, facts, gaps);
+            readMeterValues(context.sessionId(), requestContext, facts, gaps);
             return;
         }
 
-        get(properties.sessionServiceUrl(), "/api/v1/sessions/active", authorization)
+        get(properties.sessionServiceUrl(), "/api/v1/sessions/active", requestContext)
                 .ifPresentOrElse(json -> {
                     if (json.isArray()) {
                         facts.add("active sessions for this driver: " + json.size());
@@ -196,8 +251,9 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("active session lookup was not reachable"));
     }
 
-    private void readMeterValues(String sessionId, String authorization, List<String> facts, List<String> gaps) {
-        get(properties.sessionServiceUrl(), "/api/v1/meter-values/session/" + encode(sessionId), authorization)
+    private void readMeterValues(String sessionId, DiagnosticRequestContext requestContext,
+                                 List<String> facts, List<String> gaps) {
+        get(properties.sessionServiceUrl(), "/api/v1/meter-values/session/" + encode(sessionId), requestContext)
                 .ifPresentOrElse(json -> {
                     if (!json.isArray() || json.isEmpty()) {
                         facts.add("no stored meter values were found for session " + sessionId);
@@ -211,7 +267,8 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("meter value lookup was not reachable"));
     }
 
-    private void readChargerState(ContextPayload context, List<String> facts, List<String> gaps) {
+    private void readChargerState(ContextPayload context, DiagnosticRequestContext requestContext,
+                                  List<String> facts, List<String> gaps) {
         if (isBlank(context.chargerId()) && isBlank(context.connectorId())) {
             gaps.add("charger lookup skipped because no charger or connector context was provided");
             return;
@@ -241,7 +298,7 @@ public class BackendDiagnosticsClient {
                 """);
         body.set("variables", variables);
 
-        post(properties.chargerServiceUrl(), "/graphql", body.toString(), null)
+        post(properties.chargerServiceUrl(), "/graphql", body.toString(), requestContext)
                 .map(json -> json.path("data").path("ocpiCharger"))
                 .filter(JsonNode::isObject)
                 .ifPresentOrElse(charger -> {
@@ -262,12 +319,13 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("charger status lookup was not reachable"));
     }
 
-    private void readOcppConnection(ContextPayload context, List<String> facts, List<String> gaps) {
+    private void readOcppConnection(ContextPayload context, DiagnosticRequestContext requestContext,
+                                    List<String> facts, List<String> gaps) {
         if (isBlank(context.chargerId())) {
             gaps.add("OCPP connection lookup skipped because no charger id was provided");
             return;
         }
-        get(properties.ocppServiceUrl(), "/api/v1/ocpp/connections/" + encode(context.chargerId()), null)
+        get(properties.ocppServiceUrl(), "/api/v1/ocpp/connections/" + encode(context.chargerId()), requestContext)
                 .ifPresentOrElse(json -> {
                     facts.add("OCPP connection active=" + json.path("active").asBoolean(false)
                             + ", localConnected=" + json.path("localConnected").asBoolean(false)
@@ -281,11 +339,12 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("OCPP connection lookup did not find an active connection for " + context.chargerId()));
     }
 
-    private void readOcppHistory(ContextPayload context, List<String> facts, List<String> gaps) {
+    private void readOcppHistory(ContextPayload context, DiagnosticRequestContext requestContext,
+                                 List<String> facts, List<String> gaps) {
         if (isBlank(context.chargerId())) {
             return;
         }
-        get(properties.ocppServiceUrl(), "/api/v1/ocpp/stats/connections/history?size=8&chargePointId=" + encode(context.chargerId()), null)
+        get(properties.ocppServiceUrl(), "/api/v1/ocpp/stats/connections/history?size=8&chargePointId=" + encode(context.chargerId()), requestContext)
                 .ifPresentOrElse(json -> {
                     JsonNode content = json.path("content");
                     if (!content.isArray() || content.isEmpty()) {
@@ -313,7 +372,8 @@ public class BackendDiagnosticsClient {
                 }, () -> gaps.add("recent OCPP message history was not reachable"));
     }
 
-    private Optional<ReferencePoint> readReferencePoint(ContextPayload context) {
+    private Optional<ReferencePoint> readReferencePoint(ContextPayload context,
+                                                        DiagnosticRequestContext requestContext) {
         if (isBlank(context.chargerId()) && isBlank(context.locationId())) {
             return Optional.empty();
         }
@@ -337,7 +397,7 @@ public class BackendDiagnosticsClient {
                 """);
         body.set("variables", variables);
 
-        return post(properties.chargerServiceUrl(), "/graphql", body.toString(), null)
+        return post(properties.chargerServiceUrl(), "/graphql", body.toString(), requestContext)
                 .map(json -> json.path("data").path("ocpiCharger"))
                 .filter(JsonNode::isObject)
                 .map(charger -> {
@@ -358,7 +418,8 @@ public class BackendDiagnosticsClient {
 
     private List<ChargerAlternative> readAvailableAlternatives(ContextPayload context,
                                                               String requestedStandard,
-                                                              Optional<ReferencePoint> reference) {
+                                                              Optional<ReferencePoint> reference,
+                                                              DiagnosticRequestContext requestContext) {
         ObjectNode variables = objectMapper.createObjectNode();
         variables.put("countryCode", "US");
         variables.put("limit", 500);
@@ -389,7 +450,7 @@ public class BackendDiagnosticsClient {
                 """);
         body.set("variables", variables);
 
-        return post(properties.chargerServiceUrl(), "/graphql", body.toString(), null)
+        return post(properties.chargerServiceUrl(), "/graphql", body.toString(), requestContext)
                 .map(json -> json.path("data").path("ocpiChargers"))
                 .filter(JsonNode::isArray)
                 .map(chargers -> {
@@ -436,24 +497,25 @@ public class BackendDiagnosticsClient {
                 .orElseGet(List::of);
     }
 
-    private Optional<JsonNode> get(String baseUrl, String path, String authorization) {
+    private Optional<JsonNode> get(String baseUrl, String path, DiagnosticRequestContext requestContext) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(trimTrailingSlash(baseUrl) + path))
                 .timeout(timeout())
                 .GET()
                 .header("Accept", "application/json");
-        addAuthorization(builder, authorization);
+        applyTrustedContext(builder, requestContext);
         return send(builder.build());
     }
 
-    private Optional<JsonNode> post(String baseUrl, String path, String body, String authorization) {
+    private Optional<JsonNode> post(String baseUrl, String path, String body,
+                                    DiagnosticRequestContext requestContext) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(trimTrailingSlash(baseUrl) + path))
                 .timeout(timeout())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json");
-        addAuthorization(builder, authorization);
+        applyTrustedContext(builder, requestContext);
         return send(builder.build());
     }
 
@@ -519,10 +581,27 @@ public class BackendDiagnosticsClient {
                 + ", estimated cost=" + money("USD", session.path("estimatedCost")));
     }
 
-    private void addAuthorization(HttpRequest.Builder builder, String authorization) {
-        if (!isBlank(authorization)) {
-            builder.header("Authorization", authorization);
+    private void applyTrustedContext(HttpRequest.Builder builder, DiagnosticRequestContext requestContext) {
+        if (requestContext == null) {
+            return;
         }
+        if (!isBlank(requestContext.authorization())) {
+            builder.header("Authorization", requestContext.authorization());
+        }
+        identitySigner.apply(builder, requestContext.identity());
+    }
+
+    private static int elapsedMs(long startedNanos) {
+        return (int) Math.min(Integer.MAX_VALUE, (System.nanoTime() - startedNanos) / 1_000_000L);
+    }
+
+    private static IdentityContext legacyIdentity(String authorization) {
+        boolean authenticated = !isBlank(authorization);
+        return new IdentityContext(
+                authenticated ? "electrahub" : "public",
+                authenticated ? "legacy-user" : "anonymous",
+                java.util.Set.of(),
+                authenticated);
     }
 
     private Duration timeout() {
@@ -698,6 +777,9 @@ public class BackendDiagnosticsClient {
     @FunctionalInterface
     private interface DiagnosticReader {
         void collect(List<String> facts, List<String> gaps);
+    }
+
+    private record DiagnosticRequestContext(String authorization, IdentityContext identity) {
     }
 
     private record NamedDiagnosticTask(String name, CompletableFuture<DiagnosticSection> future) {

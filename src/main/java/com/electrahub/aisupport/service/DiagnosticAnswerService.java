@@ -2,6 +2,7 @@ package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,21 +57,35 @@ public class DiagnosticAnswerService {
     }
 
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
+        return answer(userMessage, context, authorization, legacyIdentity(authorization));
+    }
+
+    public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization,
+                                   IdentityContext identity) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
         Optional<DiagnosticAnswer> conversational = conversationalAnswer(message);
         if (conversational.isPresent()) {
             return conversational.get();
         }
-        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(message, safeContext, authorization);
+        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(
+                message, safeContext, authorization, identity);
 
-        DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics);
+        DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics, identity);
         return llmAnswerOrFallback(userMessage, safeContext, diagnostics, fallback);
     }
 
     public DiagnosticAnswer answerStreaming(String userMessage,
                                             ContextPayload context,
                                             String authorization,
+                                            Consumer<String> onDelta) {
+        return answerStreaming(userMessage, context, authorization, legacyIdentity(authorization), onDelta);
+    }
+
+    public DiagnosticAnswer answerStreaming(String userMessage,
+                                            ContextPayload context,
+                                            String authorization,
+                                            IdentityContext identity,
                                             Consumer<String> onDelta) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
@@ -79,8 +94,9 @@ public class DiagnosticAnswerService {
             onDelta.accept(conversational.get().text());
             return conversational.get();
         }
-        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(message, safeContext, authorization);
-        DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics);
+        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(
+                message, safeContext, authorization, identity);
+        DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics, identity);
         if (!llmClient.available()) {
             onDelta.accept(fallback.text());
             return fallback;
@@ -125,7 +141,8 @@ public class DiagnosticAnswerService {
     private DiagnosticAnswer deterministicAnswer(String message,
                                                   String userMessage,
                                                   ContextPayload safeContext,
-                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
+                                                  IdentityContext identity) {
 
         DiagnosticAnswer fallback;
         if (isRevenueDashboardQuestion(message, safeContext)) {
@@ -183,7 +200,7 @@ public class DiagnosticAnswerService {
         } else if (isPricingComparisonQuestion(message)) {
             fallback = pricingComparisonNeedsContext(safeContext);
         } else if (isFindChargerQuestion(message)) {
-            fallback = chargerAlternatives(userMessage, safeContext);
+            fallback = chargerAlternatives(userMessage, safeContext, identity);
         } else if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
             fallback = alreadyActive(safeContext, diagnostics);
         } else if (message.contains("stuck") || message.contains("preparing")) {
@@ -230,8 +247,10 @@ public class DiagnosticAnswerService {
 
     private BackendDiagnosticsClient.DiagnosticsSnapshot collectDiagnostics(String message,
                                                                              ContextPayload context,
-                                                                             String authorization) {
-        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = diagnosticsClient.collect(message, context, authorization);
+                                                                             String authorization,
+                                                                             IdentityContext identity) {
+        BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics =
+                diagnosticsClient.collect(message, context, authorization, identity);
         if (diagnostics == null) {
             diagnostics = diagnosticsClient.collect(context, authorization);
         }
@@ -552,9 +571,12 @@ public class DiagnosticAnswerService {
         );
     }
 
-    private DiagnosticAnswer chargerAlternatives(String userMessage, ContextPayload context) {
+    private DiagnosticAnswer chargerAlternatives(String userMessage, ContextPayload context, IdentityContext identity) {
         BackendDiagnosticsClient.ChargerAlternatives alternatives =
-                diagnosticsClient.findChargerAlternatives(context, userMessage, 3);
+                diagnosticsClient.findChargerAlternatives(context, userMessage, 3, identity);
+        if (alternatives == null) {
+            alternatives = diagnosticsClient.findChargerAlternatives(context, userMessage, 3);
+        }
         if (!alternatives.alternatives().isEmpty()) {
             StringBuilder builder = new StringBuilder("I found these available ");
             builder.append(alternatives.connectorLabel()).append(" options");
@@ -1141,6 +1163,15 @@ public class DiagnosticAnswerService {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static IdentityContext legacyIdentity(String authorization) {
+        boolean authenticated = authorization != null && !authorization.isBlank();
+        return new IdentityContext(
+                authenticated ? "electrahub" : "public",
+                authenticated ? "legacy-user" : "anonymous",
+                Set.of(),
+                authenticated);
     }
 
     private static boolean isDriverAudience(ContextPayload context) {
