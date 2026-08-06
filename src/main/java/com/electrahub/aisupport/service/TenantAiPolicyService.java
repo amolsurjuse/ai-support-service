@@ -45,11 +45,13 @@ public class TenantAiPolicyService {
                 properties.defaultRequestsPerMinute());
         int perDay = positiveOrDefault(override == null ? null : override.requestsPerDay(),
                 properties.defaultRequestsPerDay());
+        int tokensPerDay = positiveOrDefault(override == null ? null : override.tokensPerDay(),
+                properties.defaultTokensPerDay());
         List<String> knowledge = override == null || override.knowledge() == null
                 ? List.of() : override.knowledge().stream().filter(TenantAiPolicyService::hasText).limit(20).toList();
         Set<String> tools = override == null || override.allowedAdminTools() == null
                 ? Set.of("*") : Set.copyOf(override.allowedAdminTools());
-        return new TenantPolicy(tenantId, enabled, perMinute, perDay, knowledge, tools);
+        return new TenantPolicy(tenantId, enabled, perMinute, perDay, tokensPerDay, knowledge, tools);
     }
 
     public boolean quotaEnabled() {
@@ -80,6 +82,7 @@ public class TenantAiPolicyService {
     }
 
     public record TenantPolicy(String tenantId, boolean enabled, int requestsPerMinute, int requestsPerDay,
+                               int tokensPerDay,
                                List<String> knowledge, Set<String> allowedAdminTools) {
         public boolean allowsTool(String auditName) {
             return allowedAdminTools.contains("*") || allowedAdminTools.contains(auditName);
@@ -91,6 +94,7 @@ public class TenantAiPolicyService {
     }
 
     public record TenantOverride(Boolean enabled, Integer requestsPerMinute, Integer requestsPerDay,
+                                 Integer tokensPerDay,
                                  List<String> knowledge, Set<String> allowedAdminTools) {
     }
 }

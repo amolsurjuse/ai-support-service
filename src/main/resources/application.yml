@@ -35,6 +35,7 @@ electrahub:
       quota-fail-closed: ${AI_TENANT_QUOTA_FAIL_CLOSED:true}
       default-requests-per-minute: ${AI_TENANT_DEFAULT_REQUESTS_PER_MINUTE:60}
       default-requests-per-day: ${AI_TENANT_DEFAULT_REQUESTS_PER_DAY:5000}
+      default-tokens-per-day: ${AI_TENANT_DEFAULT_TOKENS_PER_DAY:1000000}
       policies-json: '${AI_TENANT_POLICIES_JSON:{}}'
     provider-enabled: ${AI_PROVIDER_ENABLED:false}
     provider: ${AI_PROVIDER:openai}

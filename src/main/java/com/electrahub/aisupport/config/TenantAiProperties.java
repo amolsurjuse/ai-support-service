@@ -9,6 +9,7 @@ public record TenantAiProperties(
         boolean quotaFailClosed,
         int defaultRequestsPerMinute,
         int defaultRequestsPerDay,
+        int defaultTokensPerDay,
         String policiesJson
 ) {
 }

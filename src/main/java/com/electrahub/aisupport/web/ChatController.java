@@ -58,7 +58,7 @@ class ChatController {
                                     @RequestHeader(name = "Prefer", required = false) String prefer) {
         IdentityContext identity = identityResolver.resolve(servletRequest);
         toolAuthorization.requireAudienceAccess(identity, request.context());
-        quotaService.admit(identity);
+        quotaService.admit(identity, request.content());
         var pending = threadStore.create(identity, request.threadId(), request.content(), request.context());
         String authorization = servletRequest.getHeader("Authorization");
         if (prefer != null && prefer.toLowerCase().contains("respond-async")) {

@@ -15,6 +15,7 @@ class TenantIsolationEvaluationTest {
               "tenant-a": {
                 "requestsPerMinute": 7,
                 "requestsPerDay": 70,
+                "tokensPerDay": 7000,
                 "knowledge": ["Tenant A help line is 111."],
                 "allowedAdminTools": ["admin.analytics.overview"]
               },
@@ -35,6 +36,7 @@ class TenantIsolationEvaluationTest {
 
         assertThat(tenantA.enabled()).isTrue();
         assertThat(tenantA.requestsPerMinute()).isEqualTo(7);
+        assertThat(tenantA.tokensPerDay()).isEqualTo(7000);
         assertThat(tenantA.knowledgeText()).contains("Tenant A help line").doesNotContain("Tenant B private");
         assertThat(tenantB.enabled()).isFalse();
         assertThat(tenantB.knowledgeText()).contains("Tenant B private").doesNotContain("Tenant A help line");
@@ -56,7 +58,7 @@ class TenantIsolationEvaluationTest {
                 .isInstanceOf(TenantAiAccessException.class);
 
         TenantAiPolicyService invalid = new TenantAiPolicyService(
-                new TenantAiProperties(true, true, true, 60, 5000, "{bad-json"), new ObjectMapper());
+                new TenantAiProperties(true, true, true, 60, 5000, 1000000, "{bad-json"), new ObjectMapper());
         assertThatThrownBy(invalid::load).isInstanceOf(IllegalStateException.class);
     }
 
@@ -74,7 +76,7 @@ class TenantIsolationEvaluationTest {
 
     private static TenantAiPolicyService service() {
         TenantAiPolicyService service = new TenantAiPolicyService(
-                new TenantAiProperties(true, true, true, 60, 5000, POLICIES), new ObjectMapper());
+                new TenantAiProperties(true, true, true, 60, 5000, 1000000, POLICIES), new ObjectMapper());
         service.load();
         return service;
     }
