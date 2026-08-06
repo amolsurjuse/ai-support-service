@@ -2,6 +2,7 @@ package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -19,6 +20,7 @@ public class AdminMutationApprovalStore {
     private final Duration ttl;
     private final Clock clock;
 
+    @Autowired
     public AdminMutationApprovalStore(@Value("${electrahub.ai-support.admin-approval-ttl-ms:300000}") long ttlMs) {
         this(Duration.ofMillis(ttlMs), Clock.systemUTC());
     }
