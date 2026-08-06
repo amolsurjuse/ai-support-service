@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Arrays;
 
 @Service
 public class TenantAiPolicyService {
@@ -60,6 +61,21 @@ public class TenantAiPolicyService {
 
     public boolean quotaFailClosed() {
         return properties.quotaFailClosed();
+    }
+
+    public boolean evaluationEnabled() {
+        return properties.enabled() && properties.evaluationEnabled();
+    }
+
+    public List<String> evaluationTenants() {
+        if (properties.evaluationTenants() == null || properties.evaluationTenants().isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(properties.evaluationTenants().split(","))
+                .map(String::trim)
+                .filter(TenantAiPolicyService::hasText)
+                .distinct()
+                .toList();
     }
 
     private static String normalizeTenant(String value) {

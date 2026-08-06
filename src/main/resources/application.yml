@@ -36,6 +36,10 @@ electrahub:
       default-requests-per-minute: ${AI_TENANT_DEFAULT_REQUESTS_PER_MINUTE:60}
       default-requests-per-day: ${AI_TENANT_DEFAULT_REQUESTS_PER_DAY:5000}
       default-tokens-per-day: ${AI_TENANT_DEFAULT_TOKENS_PER_DAY:1000000}
+      evaluation-enabled: ${AI_TENANT_EVALUATION_ENABLED:false}
+      evaluation-tenants: ${AI_TENANT_EVALUATION_TENANTS:electrahub}
+      evaluation-initial-delay-ms: ${AI_TENANT_EVALUATION_INITIAL_DELAY_MS:60000}
+      evaluation-interval-ms: ${AI_TENANT_EVALUATION_INTERVAL_MS:900000}
       policies-json: '${AI_TENANT_POLICIES_JSON:{}}'
     provider-enabled: ${AI_PROVIDER_ENABLED:false}
     provider: ${AI_PROVIDER:openai}

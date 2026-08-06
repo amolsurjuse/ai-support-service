@@ -94,6 +94,16 @@ public class TenantAiQuotaService {
         return Math.max(1, (inputCharacters + 3) / 4) + 180;
     }
 
+    public String verifyStore() {
+        var connectionFactory = redis.getConnectionFactory();
+        if (connectionFactory == null) {
+            throw new IllegalStateException("Redis connection factory is unavailable");
+        }
+        try (var connection = connectionFactory.getConnection()) {
+            return connection.ping();
+        }
+    }
+
     private TenantAiPolicyService.TenantPolicy unavailable(IdentityContext identity,
                                                             TenantAiPolicyService.TenantPolicy policy,
                                                             RuntimeException ex) {

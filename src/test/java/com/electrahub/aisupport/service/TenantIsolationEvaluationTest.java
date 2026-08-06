@@ -58,7 +58,8 @@ class TenantIsolationEvaluationTest {
                 .isInstanceOf(TenantAiAccessException.class);
 
         TenantAiPolicyService invalid = new TenantAiPolicyService(
-                new TenantAiProperties(true, true, true, 60, 5000, 1000000, "{bad-json"), new ObjectMapper());
+                new TenantAiProperties(true, true, true, 60, 5000, 1000000, true, "tenant-a", "{bad-json"),
+                new ObjectMapper());
         assertThatThrownBy(invalid::load).isInstanceOf(IllegalStateException.class);
     }
 
@@ -76,7 +77,8 @@ class TenantIsolationEvaluationTest {
 
     private static TenantAiPolicyService service() {
         TenantAiPolicyService service = new TenantAiPolicyService(
-                new TenantAiProperties(true, true, true, 60, 5000, 1000000, POLICIES), new ObjectMapper());
+                new TenantAiProperties(true, true, true, 60, 5000, 1000000, true, "tenant-a,tenant-b", POLICIES),
+                new ObjectMapper());
         service.load();
         return service;
     }

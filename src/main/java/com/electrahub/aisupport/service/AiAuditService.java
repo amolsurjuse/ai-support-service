@@ -48,6 +48,10 @@ public class AiAuditService {
                 safe(identity == null ? null : identity.userId()), safe(outcome));
     }
 
+    public void tenantEvaluation(int tenantCount, String outcome) {
+        audit.info("event=ai_tenant_evaluation tenantCount={} outcome={}", tenantCount, safe(outcome));
+    }
+
     private static String safe(String value) {
         return value == null || value.isBlank() ? "none" : value.replaceAll("[^A-Za-z0-9._:@-]", "_");
     }

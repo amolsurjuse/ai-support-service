@@ -10,6 +10,8 @@ public record TenantAiProperties(
         int defaultRequestsPerMinute,
         int defaultRequestsPerDay,
         int defaultTokensPerDay,
+        boolean evaluationEnabled,
+        String evaluationTenants,
         String policiesJson
 ) {
 }
