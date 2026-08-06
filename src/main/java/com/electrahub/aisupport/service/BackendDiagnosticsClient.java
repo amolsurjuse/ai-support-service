@@ -31,6 +31,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,6 +47,7 @@ public class BackendDiagnosticsClient {
     private final AiToolAuthorizationService toolAuthorization;
     private final TrustedIdentityContextSigner identitySigner;
     private final AiAuditService auditService;
+    private final DiagnosticIntentRouter intentRouter;
     private final HttpClient httpClient;
     private final ExecutorService diagnosticsExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -53,12 +55,14 @@ public class BackendDiagnosticsClient {
                                     ObjectMapper objectMapper,
                                     AiToolAuthorizationService toolAuthorization,
                                     TrustedIdentityContextSigner identitySigner,
-                                    AiAuditService auditService) {
+                                    AiAuditService auditService,
+                                    DiagnosticIntentRouter intentRouter) {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.toolAuthorization = toolAuthorization;
         this.identitySigner = identitySigner;
         this.auditService = auditService;
+        this.intentRouter = intentRouter;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout())
                 .build();
@@ -77,28 +81,29 @@ public class BackendDiagnosticsClient {
         ContextPayload safeContext = context == null
                 ? new ContextPayload(null, null, null, null, null, null, null, "driver")
                 : context;
-        String message = userMessage == null ? null : userMessage.toLowerCase(Locale.ROOT);
         DiagnosticRequestContext requestContext = new DiagnosticRequestContext(authorization, identity);
         toolAuthorization.requireAudienceAccess(identity, safeContext);
         List<NamedDiagnosticTask> tasks = new ArrayList<>();
-        if (message == null || containsAny(message, "payment", "wallet", "card", "balance", "receipt", "billing", "cost", "price", "fee", "refund", "hold")) {
-            addAuthorizedTask(tasks, "payment", requestContext, safeContext,
-                    (facts, gaps) -> readPaymentState(requestContext, facts, gaps));
-        }
-        if (message == null || !isBlank(safeContext.sessionId())
-                || containsAny(message, "session", "charging", "start", "stop", "stuck", "preparing", "active", "idle", "receipt", "meter", "energy")) {
-            addAuthorizedTask(tasks, "session", requestContext, safeContext,
-                    (facts, gaps) -> readSessionState(safeContext, requestContext, facts, gaps));
-        }
-        if (message == null || containsAny(message, "charger", "connector", "available", "availability", "online", "offline", "heartbeat", "start", "charging", "power", "station")) {
-            addAuthorizedTask(tasks, "charger", requestContext, safeContext,
-                    (facts, gaps) -> readChargerState(safeContext, requestContext, facts, gaps));
-        }
-        if (message == null || containsAny(message, "ocpp", "online", "offline", "heartbeat", "start fail", "failed to start", "stuck", "preparing", "simulator", "unplug")) {
-            addAuthorizedTask(tasks, "ocpp connection", requestContext, safeContext,
-                    (facts, gaps) -> readOcppConnection(safeContext, requestContext, facts, gaps));
-            addAuthorizedTask(tasks, "ocpp history", requestContext, safeContext,
-                    (facts, gaps) -> readOcppHistory(safeContext, requestContext, facts, gaps));
+        Set<String> selectedDiagnostics = intentRouter.route(userMessage, safeContext);
+        for (String diagnostic : selectedDiagnostics) {
+            switch (diagnostic) {
+                case DiagnosticIntentRouter.PAYMENT -> addAuthorizedTask(
+                        tasks, diagnostic, requestContext, safeContext,
+                        (facts, gaps) -> readPaymentState(requestContext, facts, gaps));
+                case DiagnosticIntentRouter.SESSION -> addAuthorizedTask(
+                        tasks, diagnostic, requestContext, safeContext,
+                        (facts, gaps) -> readSessionState(safeContext, requestContext, facts, gaps));
+                case DiagnosticIntentRouter.CHARGER -> addAuthorizedTask(
+                        tasks, diagnostic, requestContext, safeContext,
+                        (facts, gaps) -> readChargerState(safeContext, requestContext, facts, gaps));
+                case DiagnosticIntentRouter.OCPP_CONNECTION -> addAuthorizedTask(
+                        tasks, diagnostic, requestContext, safeContext,
+                        (facts, gaps) -> readOcppConnection(safeContext, requestContext, facts, gaps));
+                case DiagnosticIntentRouter.OCPP_HISTORY -> addAuthorizedTask(
+                        tasks, diagnostic, requestContext, safeContext,
+                        (facts, gaps) -> readOcppHistory(safeContext, requestContext, facts, gaps));
+                default -> log.warn("Sparky ignored unknown diagnostic route={}", diagnostic);
+            }
         }
 
         if (tasks.isEmpty()) {
@@ -106,7 +111,7 @@ public class BackendDiagnosticsClient {
             return new DiagnosticsSnapshot(List.of(), List.of());
         }
         log.info("Sparky diagnostics selected tasks={} questionChars={}",
-                tasks.stream().map(NamedDiagnosticTask::name).toList(), message == null ? 0 : message.length());
+                tasks.stream().map(NamedDiagnosticTask::name).toList(), userMessage == null ? 0 : userMessage.length());
 
         boolean timedOut = false;
         try {

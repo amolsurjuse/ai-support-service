@@ -23,7 +23,7 @@ public class AiToolAuthorizationService {
 
     public boolean canRunDiagnostic(IdentityContext identity, ContextPayload context, String diagnostic) {
         requireAudienceAccess(identity, context);
-        if (isAdministrator(identity)) {
+        if (isAdministrativeAudience(context) && isAdministrator(identity)) {
             return true;
         }
         return switch (diagnostic) {

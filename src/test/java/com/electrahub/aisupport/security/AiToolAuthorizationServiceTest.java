@@ -42,6 +42,7 @@ class AiToolAuthorizationServiceTest {
 
         assertThat(authorization.canRunDiagnostic(admin, context("admin"), "ocpp history")).isTrue();
         assertThat(authorization.canRunDiagnostic(admin, context("admin"), "payment")).isTrue();
+        assertThat(authorization.canRunDiagnostic(admin, context("driver"), "ocpp history")).isFalse();
     }
 
     @Test
