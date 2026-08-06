@@ -5,6 +5,7 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -33,6 +34,7 @@ public class TenantAiQuotaService {
     private final AiAuditService audit;
     private final Clock clock;
 
+    @Autowired
     public TenantAiQuotaService(StringRedisTemplate redis, TenantAiPolicyService policies, AiAuditService audit) {
         this(redis, policies, audit, Clock.systemUTC());
     }
