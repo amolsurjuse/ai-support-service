@@ -34,6 +34,7 @@ electrahub:
     ocpp-service-url: ${OCPP_SERVICE_URL:http://ocpp-service:8082}
     gateway-url: ${API_GATEWAY_URL:http://api-gateway:8090}
     admin-tool-timeout-ms: ${AI_ADMIN_TOOL_TIMEOUT_MS:4000}
+    admin-approval-ttl-ms: ${AI_ADMIN_APPROVAL_TTL_MS:300000}
     diagnostics-timeout-ms: ${AI_DIAGNOSTICS_TIMEOUT_MS:1800}
     diagnostics-total-timeout-ms: ${AI_DIAGNOSTICS_TOTAL_TIMEOUT_MS:2400}
     thread-ttl-ms: ${AI_THREAD_TTL_MS:900000}

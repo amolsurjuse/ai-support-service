@@ -55,6 +55,13 @@ class AiToolAuthorizationServiceTest {
     }
 
     @Test
+    void readOnlyAndSupportRolesCannotExecuteMutations() {
+        assertThat(authorization.canExecuteAdminMutation(identity("tenant-a", "admin-a", "ADMIN_READ_ONLY"))).isFalse();
+        assertThat(authorization.canExecuteAdminMutation(identity("tenant-a", "support-a", "SUPPORT"))).isFalse();
+        assertThat(authorization.canExecuteAdminMutation(identity("tenant-a", "admin-b", "SYSTEM_ADMIN"))).isTrue();
+    }
+
+    @Test
     void driverCannotEscalateByChangingAudience() {
         IdentityContext driver = identity("tenant-a", "driver-a", "DRIVER", "USER");
 

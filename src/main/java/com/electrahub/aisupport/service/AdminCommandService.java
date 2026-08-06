@@ -17,15 +17,18 @@ public class AdminCommandService {
     private final AdminToolRegistry registry;
     private final AdminReadOnlyToolClient client;
     private final AiToolAuthorizationService authorizationService;
+    private final AdminMutationService mutationService;
 
     public AdminCommandService(AdminCommandPlanner planner,
                                AdminToolRegistry registry,
                                AdminReadOnlyToolClient client,
-                               AiToolAuthorizationService authorizationService) {
+                               AiToolAuthorizationService authorizationService,
+                               AdminMutationService mutationService) {
         this.planner = planner;
         this.registry = registry;
         this.client = client;
         this.authorizationService = authorizationService;
+        this.mutationService = mutationService;
     }
 
     public Optional<DiagnosticAnswerService.DiagnosticAnswer> answer(String message,
@@ -36,6 +39,11 @@ public class AdminCommandService {
             return Optional.empty();
         }
         authorizationService.requireAudienceAccess(identity, context);
+        Optional<DiagnosticAnswerService.DiagnosticAnswer> mutation = mutationService.answer(
+                message, authorization, identity);
+        if (mutation.isPresent()) {
+            return mutation;
+        }
         Optional<AdminCommandPlanner.Plan> planned = planner.plan(message);
         if (planned.isEmpty()) {
             return Optional.empty();

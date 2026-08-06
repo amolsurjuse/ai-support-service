@@ -14,6 +14,9 @@ public class AiToolAuthorizationService {
     private static final Set<String> ADMIN_ROLES = Set.of(
             "SYSTEM_ADMIN", "TENANT_ADMIN", "ENTERPRISE_ADMIN", "NETWORK_ADMIN", "LOCATION_ADMIN", "SUPPORT",
             "ADMIN_READ_ONLY", "ENTERPRISE", "NETWORK", "LOCATION");
+    private static final Set<String> ADMIN_MUTATION_ROLES = Set.of(
+            "SYSTEM_ADMIN", "TENANT_ADMIN", "ENTERPRISE_ADMIN", "NETWORK_ADMIN", "LOCATION_ADMIN",
+            "ENTERPRISE", "NETWORK", "LOCATION");
 
     public void requireAudienceAccess(IdentityContext identity, ContextPayload context) {
         if (isAdministrativeAudience(context) && !isAdministrator(identity)) {
@@ -39,6 +42,12 @@ public class AiToolAuthorizationService {
         return identity != null && identity.roles().stream()
                 .map(role -> role.toUpperCase(Locale.ROOT))
                 .anyMatch(ADMIN_ROLES::contains);
+    }
+
+    public boolean canExecuteAdminMutation(IdentityContext identity) {
+        return identity != null && identity.authenticated() && identity.roles().stream()
+                .map(role -> role.toUpperCase(Locale.ROOT))
+                .anyMatch(ADMIN_MUTATION_ROLES::contains);
     }
 
     private static boolean isAdministrativeAudience(ContextPayload context) {

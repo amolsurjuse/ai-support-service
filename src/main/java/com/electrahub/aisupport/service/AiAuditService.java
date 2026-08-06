@@ -34,6 +34,14 @@ public class AiAuditService {
                 safe(outcome));
     }
 
+    public void adminMutation(IdentityContext identity, String operation,
+                              UUID confirmationId, String outcome) {
+        audit.info("event=ai_admin_mutation tenantId={} userId={} operation={} confirmationId={} outcome={}",
+                safe(identity == null ? null : identity.tenantId()),
+                safe(identity == null ? null : identity.userId()),
+                safe(operation), confirmationId, safe(outcome));
+    }
+
     private static String safe(String value) {
         return value == null || value.isBlank() ? "none" : value.replaceAll("[^A-Za-z0-9._:@-]", "_");
     }
