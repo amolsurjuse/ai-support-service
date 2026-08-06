@@ -31,6 +31,7 @@ final class LlmPromptFormatter {
         }
         builder.append("\nProject behavior relevant to this question:\n")
                 .append(ElectraHubKnowledgeBase.relevantFacts(prompt.userMessage(), prompt.context(), 1))
+                .append(tenantKnowledge(prompt.tenantKnowledge()))
                 .append("\n\nAuthoritative answer that must remain true:\n")
                 .append(prompt.deterministicAnswer() == null ? "" : truncate(prompt.deterministicAnswer().text(), 650))
                 .append("\n\nVerified backend facts and unavailable checks:\n")
@@ -54,6 +55,13 @@ final class LlmPromptFormatter {
         appendDashboardAttentionInvariant(builder, prompt);
         appendPastSessionInvariant(builder, prompt);
         return builder.toString();
+    }
+
+    private static String tenantKnowledge(String knowledge) {
+        if (isBlank(knowledge)) {
+            return "";
+        }
+        return "\n\nTenant-specific operating guidance:\n" + truncate(knowledge, 1200);
     }
 
     static int promptSize(LlmClient.LlmPrompt prompt) {

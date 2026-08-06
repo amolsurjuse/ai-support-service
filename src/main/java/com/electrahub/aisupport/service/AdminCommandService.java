@@ -18,17 +18,20 @@ public class AdminCommandService {
     private final AdminReadOnlyToolClient client;
     private final AiToolAuthorizationService authorizationService;
     private final AdminMutationService mutationService;
+    private final TenantAiPolicyService tenantPolicyService;
 
     public AdminCommandService(AdminCommandPlanner planner,
                                AdminToolRegistry registry,
                                AdminReadOnlyToolClient client,
                                AiToolAuthorizationService authorizationService,
-                               AdminMutationService mutationService) {
+                               AdminMutationService mutationService,
+                               TenantAiPolicyService tenantPolicyService) {
         this.planner = planner;
         this.registry = registry;
         this.client = client;
         this.authorizationService = authorizationService;
         this.mutationService = mutationService;
+        this.tenantPolicyService = tenantPolicyService;
     }
 
     public Optional<DiagnosticAnswerService.DiagnosticAnswer> answer(String message,
@@ -56,6 +59,12 @@ public class AdminCommandService {
                     "tenant-scoped admin policy"));
         }
         AdminToolRegistry.ToolDefinition tool = registry.require(plan.toolId());
+        if (!tenantPolicyService.policyFor(identity.tenantId()).allowsTool(tool.auditName())) {
+            return Optional.of(new DiagnosticAnswerService.DiagnosticAnswer(
+                    "admin.tool.forbidden-by-tenant",
+                    "This AI tool is not enabled for your tenant. No query was run.",
+                    "tenant AI policy"));
+        }
         try {
             var payload = client.execute(tool, plan, authorization);
             return Optional.of(new DiagnosticAnswerService.DiagnosticAnswer(

@@ -42,6 +42,12 @@ public class AiAuditService {
                 safe(operation), confirmationId, safe(outcome));
     }
 
+    public void quotaDecision(IdentityContext identity, String outcome) {
+        audit.info("event=ai_quota tenantId={} userId={} outcome={}",
+                safe(identity == null ? null : identity.tenantId()),
+                safe(identity == null ? null : identity.userId()), safe(outcome));
+    }
+
     private static String safe(String value) {
         return value == null || value.isBlank() ? "none" : value.replaceAll("[^A-Za-z0-9._:@-]", "_");
     }

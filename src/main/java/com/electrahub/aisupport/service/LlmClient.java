@@ -21,8 +21,14 @@ interface LlmClient {
             String userMessage,
             ContextPayload context,
             DiagnosticAnswerService.DiagnosticAnswer deterministicAnswer,
-            BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics
+            BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
+            String tenantKnowledge
     ) {
+        LlmPrompt(String userMessage, ContextPayload context,
+                  DiagnosticAnswerService.DiagnosticAnswer deterministicAnswer,
+                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+            this(userMessage, context, deterministicAnswer, diagnostics, "");
+        }
     }
 
     record LlmCompletion(boolean ok, String answer, String provider, String model, String error) {

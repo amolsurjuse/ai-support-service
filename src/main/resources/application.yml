@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: ai-support-service
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:2s}
 
 app:
   access-context:
@@ -23,6 +29,13 @@ electrahub:
   ai-support:
     tenant-context:
       require-signed-authenticated: ${AI_TENANT_CONTEXT_REQUIRED:true}
+    multitenancy:
+      enabled: ${AI_MULTITENANCY_ENABLED:true}
+      quota-enabled: ${AI_TENANT_QUOTA_ENABLED:false}
+      quota-fail-closed: ${AI_TENANT_QUOTA_FAIL_CLOSED:true}
+      default-requests-per-minute: ${AI_TENANT_DEFAULT_REQUESTS_PER_MINUTE:60}
+      default-requests-per-day: ${AI_TENANT_DEFAULT_REQUESTS_PER_DAY:5000}
+      policies-json: '${AI_TENANT_POLICIES_JSON:{}}'
     provider-enabled: ${AI_PROVIDER_ENABLED:false}
     provider: ${AI_PROVIDER:openai}
     provider-chain: ${AI_PROVIDER_CHAIN:}

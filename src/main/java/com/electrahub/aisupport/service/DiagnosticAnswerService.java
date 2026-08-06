@@ -36,21 +36,24 @@ public class DiagnosticAnswerService {
     private final LlmClient llmClient;
     private final SparkyAnswerQualityGuard qualityGuard;
     private final AdminCommandService adminCommandService;
+    private final TenantAiPolicyService tenantPolicyService;
 
     @Autowired
     DiagnosticAnswerService(AiSupportProperties properties,
                             PiiRedactor redactor,
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient,
-                            AdminCommandService adminCommandService) {
-        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), adminCommandService);
+                            AdminCommandService adminCommandService,
+                            TenantAiPolicyService tenantPolicyService) {
+        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), adminCommandService,
+                tenantPolicyService);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
                             PiiRedactor redactor,
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient) {
-        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), null);
+        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), null, null);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -58,7 +61,7 @@ public class DiagnosticAnswerService {
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient,
                             SparkyAnswerQualityGuard qualityGuard) {
-        this(properties, redactor, diagnosticsClient, llmClient, qualityGuard, null);
+        this(properties, redactor, diagnosticsClient, llmClient, qualityGuard, null, null);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -66,13 +69,15 @@ public class DiagnosticAnswerService {
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient,
                             SparkyAnswerQualityGuard qualityGuard,
-                            AdminCommandService adminCommandService) {
+                            AdminCommandService adminCommandService,
+                            TenantAiPolicyService tenantPolicyService) {
         this.properties = properties;
         this.redactor = redactor;
         this.diagnosticsClient = diagnosticsClient;
         this.llmClient = llmClient;
         this.qualityGuard = qualityGuard;
         this.adminCommandService = adminCommandService;
+        this.tenantPolicyService = tenantPolicyService;
     }
 
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
@@ -95,7 +100,7 @@ public class DiagnosticAnswerService {
                 message, safeContext, authorization, identity);
 
         DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics, identity);
-        return llmAnswerOrFallback(userMessage, safeContext, diagnostics, fallback);
+        return llmAnswerOrFallback(userMessage, safeContext, diagnostics, fallback, identity);
     }
 
     public DiagnosticAnswer answerStreaming(String userMessage,
@@ -137,7 +142,7 @@ public class DiagnosticAnswerService {
             onDelta.accept(delta);
         };
         LlmClient.LlmPrompt prompt = new LlmClient.LlmPrompt(
-                redactor.redact(userMessage), safeContext, fallback, diagnostics);
+                redactor.redact(userMessage), safeContext, fallback, diagnostics, tenantKnowledge(identity));
         LlmClient.LlmCompletion completion = live
                 ? llmClient.completeStreaming(prompt, streamConsumer)
                 : llmClient.complete(prompt);
@@ -290,7 +295,8 @@ public class DiagnosticAnswerService {
     private DiagnosticAnswer llmAnswerOrFallback(String userMessage,
                                                  ContextPayload context,
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
-                                                 DiagnosticAnswer fallback) {
+                                                 DiagnosticAnswer fallback,
+                                                 IdentityContext identity) {
         if (!llmClient.available()) {
             log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
                     fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
@@ -300,7 +306,8 @@ public class DiagnosticAnswerService {
                 redactor.redact(userMessage),
                 context,
                 fallback,
-                diagnostics
+                diagnostics,
+                tenantKnowledge(identity)
         ));
         if (!completion.ok() || completion.answer().isBlank()) {
             log.warn("Sparky using deterministic fallback reason=llm_completion_failed provider={} model={} tool={} error={}",
@@ -317,6 +324,13 @@ public class DiagnosticAnswerService {
         log.info("Sparky using LLM answer provider={} model={} tool={} answerChars={}",
                 completion.provider(), completion.model(), fallback.toolName(), evaluation.answer().length());
         return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
+    }
+
+    private String tenantKnowledge(IdentityContext identity) {
+        if (tenantPolicyService == null || identity == null) {
+            return "";
+        }
+        return tenantPolicyService.policyFor(identity.tenantId()).knowledgeText();
     }
 
     public String renderForClient(DiagnosticAnswer answer) {

@@ -13,17 +13,20 @@ public class AdminMutationService {
     private final AdminMutationToolClient client;
     private final AiToolAuthorizationService authorizationService;
     private final AiAuditService auditService;
+    private final TenantAiPolicyService tenantPolicyService;
 
     public AdminMutationService(AdminMutationPlanner planner,
                                 AdminMutationApprovalStore approvals,
                                 AdminMutationToolClient client,
                                 AiToolAuthorizationService authorizationService,
-                                AiAuditService auditService) {
+                                AiAuditService auditService,
+                                TenantAiPolicyService tenantPolicyService) {
         this.planner = planner;
         this.approvals = approvals;
         this.client = client;
         this.authorizationService = authorizationService;
         this.auditService = auditService;
+        this.tenantPolicyService = tenantPolicyService;
     }
 
     Optional<DiagnosticAnswerService.DiagnosticAnswer> answer(String message,
@@ -32,6 +35,10 @@ public class AdminMutationService {
         Optional<AdminMutationPlanner.MutationCommand> parsed = planner.parse(message);
         if (parsed.isEmpty()) {
             return Optional.empty();
+        }
+        if (!tenantPolicyService.policyFor(identity.tenantId()).allowsTool("admin.session.stop")) {
+            return Optional.of(answer("admin.mutation.forbidden-by-tenant",
+                    "This AI action is not enabled for your tenant. No action was taken."));
         }
         if (!authorizationService.canExecuteAdminMutation(identity)) {
             return Optional.of(answer("admin.mutation.forbidden",

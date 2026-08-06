@@ -9,6 +9,7 @@ import com.electrahub.aisupport.security.TrustedIdentityContextResolver;
 import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
 import com.electrahub.aisupport.security.AiToolAuthorizationService;
 import com.electrahub.aisupport.service.AiAuditService;
+import com.electrahub.aisupport.service.TenantAiQuotaService;
 
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,18 +34,21 @@ class ChatController {
     private final TrustedIdentityContextResolver identityResolver;
     private final AiToolAuthorizationService toolAuthorization;
     private final AiAuditService auditService;
+    private final TenantAiQuotaService quotaService;
     private final ExecutorService answerExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     ChatController(ChatThreadStore threadStore,
                    DiagnosticAnswerService answerService,
                    TrustedIdentityContextResolver identityResolver,
                    AiToolAuthorizationService toolAuthorization,
-                   AiAuditService auditService) {
+                   AiAuditService auditService,
+                   TenantAiQuotaService quotaService) {
         this.threadStore = threadStore;
         this.answerService = answerService;
         this.identityResolver = identityResolver;
         this.toolAuthorization = toolAuthorization;
         this.auditService = auditService;
+        this.quotaService = quotaService;
     }
 
     @PostMapping("/messages")
@@ -54,6 +58,7 @@ class ChatController {
                                     @RequestHeader(name = "Prefer", required = false) String prefer) {
         IdentityContext identity = identityResolver.resolve(servletRequest);
         toolAuthorization.requireAudienceAccess(identity, request.context());
+        quotaService.admit(identity);
         var pending = threadStore.create(identity, request.threadId(), request.content(), request.context());
         String authorization = servletRequest.getHeader("Authorization");
         if (prefer != null && prefer.toLowerCase().contains("respond-async")) {
