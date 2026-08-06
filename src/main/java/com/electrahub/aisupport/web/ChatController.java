@@ -5,6 +5,8 @@ import com.electrahub.aisupport.model.ChatDtos.SendMessageResponse;
 import com.electrahub.aisupport.service.ChatThreadStore;
 import com.electrahub.aisupport.service.DiagnosticAnswerService;
 import com.electrahub.aisupport.model.ChatDtos.StreamEvent;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
 
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,11 +28,15 @@ import java.util.concurrent.Executors;
 class ChatController {
     private final ChatThreadStore threadStore;
     private final DiagnosticAnswerService answerService;
+    private final TrustedIdentityContextResolver identityResolver;
     private final ExecutorService answerExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-    ChatController(ChatThreadStore threadStore, DiagnosticAnswerService answerService) {
+    ChatController(ChatThreadStore threadStore,
+                   DiagnosticAnswerService answerService,
+                   TrustedIdentityContextResolver identityResolver) {
         this.threadStore = threadStore;
         this.answerService = answerService;
+        this.identityResolver = identityResolver;
     }
 
     @PostMapping("/messages")
@@ -38,16 +44,18 @@ class ChatController {
     SendMessageResponse sendMessage(@Valid @RequestBody SendMessageRequest request,
                                     HttpServletRequest servletRequest,
                                     @RequestHeader(name = "Prefer", required = false) String prefer) {
-        var pending = threadStore.create(request.threadId(), request.content(), request.context());
+        IdentityContext identity = identityResolver.resolve(servletRequest);
+        var pending = threadStore.create(identity, request.threadId(), request.content(), request.context());
         String authorization = servletRequest.getHeader("Authorization");
         if (prefer != null && prefer.toLowerCase().contains("respond-async")) {
-            answerExecutor.submit(() -> completeAsync(pending, authorization));
+            answerExecutor.submit(() -> completeAsync(identity, pending, authorization));
             return new SendMessageResponse(pending.threadId(), pending.messageId(), null, null, null);
         }
         long startedNanos = System.nanoTime();
         var answer = answerService.answer(request.content(), request.context(), authorization);
         int latencyMs = (int) Math.min(Integer.MAX_VALUE, (System.nanoTime() - startedNanos) / 1_000_000L);
         var completed = threadStore.complete(
+                        identity,
                         pending.messageId(),
                         new ChatThreadStore.CompletedAnswer(
                                 answerService.renderForClient(answer),
@@ -64,25 +72,26 @@ class ChatController {
         );
     }
 
-    private void completeAsync(ChatThreadStore.PendingMessage pending, String authorization) {
+    private void completeAsync(IdentityContext identity, ChatThreadStore.PendingMessage pending, String authorization) {
         long startedNanos = System.nanoTime();
         try {
             var answer = answerService.answerStreaming(
                     pending.content(), pending.context(), authorization,
-                    delta -> threadStore.publish(pending.messageId(), StreamEvent.token(pending.messageId(), delta)));
+                    delta -> threadStore.publish(identity, pending.messageId(), StreamEvent.token(pending.messageId(), delta)));
             int latencyMs = (int) Math.min(Integer.MAX_VALUE, (System.nanoTime() - startedNanos) / 1_000_000L);
             threadStore.complete(
+                    identity,
                     pending.messageId(),
                     new ChatThreadStore.CompletedAnswer(
                             answerService.renderForClient(answer), answer.toolName(), answer.contextSummary(), latencyMs));
             if (isBackendTool(answer.toolName())) {
-                threadStore.publish(pending.messageId(), StreamEvent.toolCall(pending.messageId(), answer.toolName()));
-                threadStore.publish(pending.messageId(), StreamEvent.toolResult(
+                threadStore.publish(identity, pending.messageId(), StreamEvent.toolCall(pending.messageId(), answer.toolName()));
+                threadStore.publish(identity, pending.messageId(), StreamEvent.toolResult(
                         pending.messageId(), answer.toolName(), true, latencyMs));
             }
-            threadStore.publish(pending.messageId(), StreamEvent.done(pending.messageId()));
+            threadStore.publish(identity, pending.messageId(), StreamEvent.done(pending.messageId()));
         } catch (RuntimeException ex) {
-            threadStore.publish(pending.messageId(), StreamEvent.error(
+            threadStore.publish(identity, pending.messageId(), StreamEvent.error(
                     pending.messageId(), "ANSWER_ERROR", "Sparky could not finish the response. Please try again."));
         }
     }

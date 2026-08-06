@@ -5,6 +5,10 @@ spring:
   application:
     name: ai-support-service
 
+app:
+  access-context:
+    secret: ${APP_INTERNAL_ACCESS_CONTEXT_SECRET:electrahub-local-access-context-secret}
+
 management:
   endpoints:
     web:
@@ -17,6 +21,8 @@ management:
 
 electrahub:
   ai-support:
+    tenant-context:
+      require-signed-authenticated: ${AI_TENANT_CONTEXT_REQUIRED:true}
     provider-enabled: ${AI_PROVIDER_ENABLED:false}
     provider: ${AI_PROVIDER:openai}
     provider-chain: ${AI_PROVIDER_CHAIN:}

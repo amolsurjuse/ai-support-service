@@ -2,8 +2,11 @@ package com.electrahub.aisupport.web;
 
 import com.electrahub.aisupport.model.ChatDtos.StreamEvent;
 import com.electrahub.aisupport.service.ChatThreadStore;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.io.IOException;
 import java.util.UUID;
@@ -25,23 +28,27 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/api/v1/chat")
 class ChatStreamController {
     private final ChatThreadStore threadStore;
+    private final TrustedIdentityContextResolver identityResolver;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    ChatStreamController(ChatThreadStore threadStore) {
+    ChatStreamController(ChatThreadStore threadStore, TrustedIdentityContextResolver identityResolver) {
         this.threadStore = threadStore;
+        this.identityResolver = identityResolver;
     }
 
     @GetMapping(path = "/threads/{threadId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter stream(@PathVariable UUID threadId,
-                      @RequestParam(name = "since") UUID messageId) {
+                      @RequestParam(name = "since") UUID messageId,
+                      HttpServletRequest request) {
+        IdentityContext identity = identityResolver.resolve(request);
         SseEmitter emitter = new SseEmitter(120_000L);
-        executor.submit(() -> streamAnswer(threadId, messageId, emitter));
+        executor.submit(() -> streamAnswer(identity, threadId, messageId, emitter));
         return emitter;
     }
 
-    private void streamAnswer(UUID threadId, UUID messageId, SseEmitter emitter) {
+    private void streamAnswer(IdentityContext identity, UUID threadId, UUID messageId, SseEmitter emitter) {
         try {
-            var stored = threadStore.find(messageId)
+            var stored = threadStore.find(identity, messageId)
                     .filter(message -> message.pending().threadId().equals(threadId))
                     .orElse(null);
             if (stored == null) {
@@ -53,9 +60,9 @@ class ChatStreamController {
             int offset = 0;
             Instant deadline = Instant.now().plusSeconds(115);
             while (Instant.now().isBefore(deadline)) {
-                List<StreamEvent> events = threadStore.awaitEvents(messageId, offset, Duration.ofSeconds(10));
+                List<StreamEvent> events = threadStore.awaitEvents(identity, messageId, offset, Duration.ofSeconds(10));
                 if (events.isEmpty()) {
-                    var snapshot = threadStore.find(messageId).orElse(null);
+                    var snapshot = threadStore.find(identity, messageId).orElse(null);
                     if (offset == 0 && snapshot != null && snapshot.answer() != null && snapshot.events().isEmpty()) {
                         streamLegacyAnswer(messageId, snapshot.answer(), emitter);
                         emitter.complete();
