@@ -16,9 +16,12 @@ public class AdminReadOnlyToolClient {
     private final RestClient gateway;
 
     @Autowired
-    public AdminReadOnlyToolClient(RestClient.Builder builder,
-                                   @Value("${electrahub.ai-support.gateway-url:http://api-gateway:8090}") String gatewayUrl,
+    public AdminReadOnlyToolClient(@Value("${electrahub.ai-support.gateway-url:http://api-gateway:8090}") String gatewayUrl,
                                    @Value("${electrahub.ai-support.admin-tool-timeout-ms:4000}") int timeoutMs) {
+        this(RestClient.builder(), gatewayUrl, timeoutMs);
+    }
+
+    private AdminReadOnlyToolClient(RestClient.Builder builder, String gatewayUrl, int timeoutMs) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(timeoutMs);
         requestFactory.setReadTimeout(timeoutMs);
