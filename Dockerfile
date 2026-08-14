@@ -1,8 +1,9 @@
-FROM maven:3.9.12-eclipse-temurin-25@sha256:4f82a03a7d6679281952d628131299b1be88d7030a49c6a2b7d2ba2642e44e3e AS build
+FROM --platform=$BUILDPLATFORM maven:3.9.12-eclipse-temurin-25@sha256:4f82a03a7d6679281952d628131299b1be88d7030a49c6a2b7d2ba2642e44e3e AS build
 WORKDIR /workspace
 COPY .mvn .mvn
 COPY mvnw .
 COPY pom.xml .
+RUN sed -i 's/\r$//' mvnw && chmod +x mvnw
 RUN ./mvnw -B -ntp dependency:go-offline
 COPY src ./src
 RUN ./mvnw -B -ntp -DskipTests clean package
