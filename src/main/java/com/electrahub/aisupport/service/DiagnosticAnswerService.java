@@ -37,6 +37,7 @@ public class DiagnosticAnswerService {
     private final SparkyAnswerQualityGuard qualityGuard;
     private final AdminCommandService adminCommandService;
     private final TenantAiPolicyService tenantPolicyService;
+    private final BookStackKnowledgeClient bookStackKnowledgeClient;
 
     @Autowired
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -44,16 +45,17 @@ public class DiagnosticAnswerService {
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient,
                             AdminCommandService adminCommandService,
-                            TenantAiPolicyService tenantPolicyService) {
+                            TenantAiPolicyService tenantPolicyService,
+                            BookStackKnowledgeClient bookStackKnowledgeClient) {
         this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), adminCommandService,
-                tenantPolicyService);
+                tenantPolicyService, bookStackKnowledgeClient);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
                             PiiRedactor redactor,
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient) {
-        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), null, null);
+        this(properties, redactor, diagnosticsClient, llmClient, new SparkyAnswerQualityGuard(), null, null, null);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -61,7 +63,7 @@ public class DiagnosticAnswerService {
                             BackendDiagnosticsClient diagnosticsClient,
                             LlmClient llmClient,
                             SparkyAnswerQualityGuard qualityGuard) {
-        this(properties, redactor, diagnosticsClient, llmClient, qualityGuard, null, null);
+        this(properties, redactor, diagnosticsClient, llmClient, qualityGuard, null, null, null);
     }
 
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -70,7 +72,8 @@ public class DiagnosticAnswerService {
                             LlmClient llmClient,
                             SparkyAnswerQualityGuard qualityGuard,
                             AdminCommandService adminCommandService,
-                            TenantAiPolicyService tenantPolicyService) {
+                            TenantAiPolicyService tenantPolicyService,
+                            BookStackKnowledgeClient bookStackKnowledgeClient) {
         this.properties = properties;
         this.redactor = redactor;
         this.diagnosticsClient = diagnosticsClient;
@@ -78,6 +81,7 @@ public class DiagnosticAnswerService {
         this.qualityGuard = qualityGuard;
         this.adminCommandService = adminCommandService;
         this.tenantPolicyService = tenantPolicyService;
+        this.bookStackKnowledgeClient = bookStackKnowledgeClient;
     }
 
     public DiagnosticAnswer answer(String userMessage, ContextPayload context, String authorization) {
@@ -307,7 +311,7 @@ public class DiagnosticAnswerService {
                 context,
                 fallback,
                 diagnostics,
-                tenantKnowledge(identity)
+                tenantKnowledge(identity, userMessage)
         ));
         if (!completion.ok() || completion.answer().isBlank()) {
             log.warn("Sparky using deterministic fallback reason=llm_completion_failed provider={} model={} tool={} error={}",
@@ -326,11 +330,15 @@ public class DiagnosticAnswerService {
         return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
     }
 
-    private String tenantKnowledge(IdentityContext identity) {
+    private String tenantKnowledge(IdentityContext identity, String userMessage) {
         if (tenantPolicyService == null || identity == null) {
             return "";
         }
-        return tenantPolicyService.policyFor(identity.tenantId()).knowledgeText();
+        String knowledge = tenantPolicyService.policyFor(identity.tenantId()).knowledgeText();
+        if (bookStackKnowledgeClient != null) {
+            knowledge += "\n\nRole-scoped BookStack references:\n" + bookStackKnowledgeClient.search(userMessage, identity);
+        }
+        return knowledge;
     }
 
     public String renderForClient(DiagnosticAnswer answer) {

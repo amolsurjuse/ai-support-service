@@ -86,3 +86,4 @@ electrahub:
     temperature: ${AI_TEMPERATURE:0.12}
     max-output-tokens: ${AI_MAX_OUTPUT_TOKENS:180}
     llm-timeout-ms: ${AI_LLM_TIMEOUT_MS:12000}
+    bookstack-enabled: ${AI_BOOKSTACK_ENABLED:false}
