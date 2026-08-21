@@ -67,4 +67,15 @@ class AdminCommandPlannerTest {
                 Map.of("promptIntent", "refunds.pending", "responseMode", "LIVE_LIST"));
         assertThat(AdminCommandService.usesQuestionSpecificResponseMode(liveContext)).isFalse();
     }
+
+    @Test
+    void selectedRecordModeRequiresARealResourceIdentifier() {
+        var missing = new ContextPayload("chargers", "charger", null, null, null, null, null, "admin",
+                Map.of("promptIntent", "chargers.offline-reason", "responseMode", "SELECTED_RECORD"));
+        var selected = new ContextPayload("chargers", "charger", "CHG-1", null, null, null, null, "admin",
+                Map.of("promptIntent", "chargers.offline-reason", "responseMode", "SELECTED_RECORD"));
+
+        assertThat(DiagnosticAnswerService.requiresSelectedRecord(missing)).isTrue();
+        assertThat(DiagnosticAnswerService.requiresSelectedRecord(selected)).isFalse();
+    }
 }

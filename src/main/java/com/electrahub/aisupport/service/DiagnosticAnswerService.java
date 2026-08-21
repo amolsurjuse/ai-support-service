@@ -92,6 +92,9 @@ public class DiagnosticAnswerService {
                                    IdentityContext identity) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        if (requiresSelectedRecord(safeContext)) {
+            return selectedRecordRequired(safeContext);
+        }
         Optional<DiagnosticAnswer> adminAnswer = answerAdminCommand(userMessage, safeContext, authorization, identity);
         if (adminAnswer.isPresent()) {
             return adminAnswer.get();
@@ -121,6 +124,11 @@ public class DiagnosticAnswerService {
                                             Consumer<String> onDelta) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        if (requiresSelectedRecord(safeContext)) {
+            DiagnosticAnswer answer = selectedRecordRequired(safeContext);
+            onDelta.accept(answer.text());
+            return answer;
+        }
         Optional<DiagnosticAnswer> adminAnswer = answerAdminCommand(userMessage, safeContext, authorization, identity);
         if (adminAnswer.isPresent()) {
             onDelta.accept(adminAnswer.get().text());
@@ -1298,6 +1306,23 @@ public class DiagnosticAnswerService {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    static boolean requiresSelectedRecord(ContextPayload context) {
+        if (context == null || context.attributes() == null
+                || !"SELECTED_RECORD".equals(context.attributes().get("responseMode"))) {
+            return false;
+        }
+        return isBlank(context.resourceId()) && isBlank(context.chargerId()) && isBlank(context.connectorId())
+                && isBlank(context.locationId()) && isBlank(context.sessionId());
+    }
+
+    private static DiagnosticAnswer selectedRecordRequired(ContextPayload context) {
+        String resource = isBlank(context.resourceType()) ? "record" : context.resourceType().replace('-', ' ');
+        return new DiagnosticAnswer(
+                "admin.selected-record.required",
+                "Select a " + resource + " record first so I can answer using its verified, role-scoped details.",
+                "selected " + resource + " required");
     }
 
     private Optional<DiagnosticAnswer> answerAdminCommand(String message,
