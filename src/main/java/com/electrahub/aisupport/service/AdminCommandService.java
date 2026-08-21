@@ -42,6 +42,9 @@ public class AdminCommandService {
             return Optional.empty();
         }
         authorizationService.requireAudienceAccess(identity, context);
+        if (usesQuestionSpecificResponseMode(context)) {
+            return Optional.empty();
+        }
         Optional<DiagnosticAnswerService.DiagnosticAnswer> mutation = mutationService.answer(
                 message, authorization, identity);
         if (mutation.isPresent()) {
@@ -84,5 +87,15 @@ public class AdminCommandService {
         }
         String audience = context.audience().toLowerCase(Locale.ROOT);
         return audience.contains("admin") || audience.contains("support") || audience.contains("csr");
+    }
+
+    static boolean usesQuestionSpecificResponseMode(ContextPayload context) {
+        if (context == null || context.attributes() == null) {
+            return false;
+        }
+        String mode = context.attributes().get("responseMode");
+        return "SELECTED_RECORD".equals(mode)
+                || "KNOWLEDGE".equals(mode)
+                || "CHANGE_PRECHECK".equals(mode);
     }
 }

@@ -1,6 +1,9 @@
 package com.electrahub.aisupport.service;
 
+import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 import org.junit.jupiter.api.Test;
+
+import java.util.Map;
 
 import static com.electrahub.aisupport.service.AdminToolRegistry.ToolId.ANALYTICS_OVERVIEW;
 import static com.electrahub.aisupport.service.AdminToolRegistry.ToolId.CHARGERS_LIST;
@@ -51,5 +54,17 @@ class AdminCommandPlannerTest {
     @Test
     void doesNotInventAToolForUnknownText() {
         assertThat(planner.plan("explain our sustainability strategy")).isEmpty();
+    }
+
+    @Test
+    void typedSelectedKnowledgeAndPrecheckPromptsBypassBroadAdminTools() {
+        for (String mode : new String[]{"SELECTED_RECORD", "KNOWLEDGE", "CHANGE_PRECHECK"}) {
+            var context = new ContextPayload("refunds", "refund", null, null, null, null, null, "admin",
+                    Map.of("promptIntent", "refunds.failure", "responseMode", mode));
+            assertThat(AdminCommandService.usesQuestionSpecificResponseMode(context)).isTrue();
+        }
+        var liveContext = new ContextPayload("refunds", "refund", null, null, null, null, null, "admin",
+                Map.of("promptIntent", "refunds.pending", "responseMode", "LIVE_LIST"));
+        assertThat(AdminCommandService.usesQuestionSpecificResponseMode(liveContext)).isFalse();
     }
 }
