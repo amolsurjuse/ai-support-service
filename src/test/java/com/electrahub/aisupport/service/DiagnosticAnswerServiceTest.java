@@ -4,8 +4,12 @@ import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -17,6 +21,37 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 class DiagnosticAnswerServiceTest {
+
+    @Test
+    void everyApprovedEvaluationPromptHasADeterministicIntentMapping() throws Exception {
+        String catalog = Files.readString(Path.of("scripts", "ollama", "sparky-prompt-evaluation.json"));
+        Matcher cases = Pattern.compile(
+                "\\\"id\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*?"
+                        + "\\\"audience\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*?"
+                        + "\\\"screen\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*?"
+                        + "\\\"question\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"",
+                Pattern.DOTALL).matcher(catalog);
+        DiagnosticAnswerService service = service();
+
+        int checked = 0;
+        while (cases.find()) {
+            String id = cases.group(1);
+            ContextPayload context = new ContextPayload(
+                    cases.group(3),
+                    "",
+                    null, null, null, null, null,
+                    cases.group(2));
+
+            DiagnosticAnswerService.DiagnosticAnswer answer = service.answer(
+                    cases.group(4), context, "Bearer token");
+
+            assertThat(answer.toolName())
+                    .as("evaluation prompt %s must not fall through to generic help", id)
+                    .isNotEqualTo("driver_support_context");
+            checked++;
+        }
+        assertThat(checked).as("all approved evaluation prompts were parsed").isEqualTo(41);
+    }
 
     @Test
     void answersIdentityWithoutDiagnosticsOrChargerContext() {
@@ -440,7 +475,7 @@ class DiagnosticAnswerServiceTest {
                 "notifications", "session", "S-1", "EH-1", "CON-1", "LOC-1", "S-1", "driver");
 
         String answer = service.renderForClient(service.answer(
-                "Why did I get a duplicate idle notification while charging?",
+                "How are duplicate charging alerts prevented?",
                 context,
                 "Bearer token"));
 

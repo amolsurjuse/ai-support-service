@@ -214,6 +214,10 @@ public class DiagnosticAnswerService {
             fallback = pricingCaps(safeContext);
         } else if (isReceiptCostConsistencyQuestion(message)) {
             fallback = receiptCostConsistency(safeContext);
+        } else if (isChargeExplanationQuestion(message)) {
+            fallback = receiptLookupNeedsSelection(safeContext, diagnostics);
+        } else if (isIdleFeeExplanationQuestion(message)) {
+            fallback = pricingCaps(safeContext);
         } else if (isRealTimeCostQuestion(message)) {
             fallback = realTimeCost(safeContext);
         } else if (isSubscriptionQuestion(message)) {
@@ -238,6 +242,8 @@ public class DiagnosticAnswerService {
             fallback = pricingComparisonNeedsContext(safeContext);
         } else if (isFindChargerQuestion(message)) {
             fallback = chargerAlternatives(userMessage, safeContext, identity);
+        } else if (isConnectorStatusMeaningQuestion(message)) {
+            fallback = chargerAvailability(safeContext, diagnostics);
         } else if (message.contains("already_active") || message.contains("already active") || message.contains("in progress")) {
             fallback = alreadyActive(safeContext, diagnostics);
         } else if (message.contains("stuck") || message.contains("preparing")) {
@@ -1117,8 +1123,10 @@ public class DiagnosticAnswerService {
     }
 
     private static boolean isChargingNotificationQuestion(String message) {
-        return containsAny(message, "notification", "push alert", "push notification", "battery full")
-                && containsAny(message, "idle", "battery", "duplicate", "repeated", "charging", "session");
+        return containsAny(message, "notification", "notifications", "alert", "alerts", "push alert",
+                "push notification", "battery full")
+                && containsAny(message, "idle", "battery", "duplicate", "duplicates", "deduplicate",
+                "deduplication", "repeated", "charging", "session");
     }
 
     private static boolean isNotificationLifecycleQuestion(String message) {
@@ -1201,6 +1209,21 @@ public class DiagnosticAnswerService {
 
     private static boolean isPricingComparisonQuestion(String message) {
         return containsAny(message, "compare pricing", "compare price", "pricing plans", "price plans", "compare tariffs");
+    }
+
+    private static boolean isChargeExplanationQuestion(String message) {
+        return containsAny(message, "why was i charged", "why did i get charged", "explain this charge",
+                "charged amount", "charge breakdown");
+    }
+
+    private static boolean isIdleFeeExplanationQuestion(String message) {
+        return containsAny(message, "idle fee", "idle-fee")
+                && containsAny(message, "how does", "how do", "explain", "work", "calculated", "calculation");
+    }
+
+    private static boolean isConnectorStatusMeaningQuestion(String message) {
+        return containsAny(message, "what does this status mean", "what does the status mean",
+                "explain this status", "connector status meaning", "charger status meaning");
     }
 
     private static boolean isFindChargerQuestion(String message) {
