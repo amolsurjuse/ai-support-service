@@ -146,7 +146,7 @@ public class DiagnosticAnswerService {
             onDelta.accept(delta);
         };
         LlmClient.LlmPrompt prompt = new LlmClient.LlmPrompt(
-                redactor.redact(userMessage), safeContext, fallback, diagnostics, tenantKnowledge(identity));
+                redactor.redact(userMessage), safeContext, fallback, diagnostics, tenantKnowledge(identity, userMessage));
         LlmClient.LlmCompletion completion = live
                 ? llmClient.completeStreaming(prompt, streamConsumer)
                 : llmClient.complete(prompt);
