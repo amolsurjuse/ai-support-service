@@ -11,6 +11,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -203,6 +204,22 @@ class OllamaLlmClientTest {
 
         assertThat(availablePrompt).contains("must not carry a transaction id");
         assertThat(rbacPrompt).contains("Records from another location or operator must never be visible");
+    }
+
+    @Test
+    void appliesTypedAdminResponseModeContract() {
+        String prompt = LlmPromptFormatter.promptText(new LlmClient.LlmPrompt(
+                "What should I check before disabling this network?",
+                new ContextPayload("charger-network", "network", "NET-1", null, null, null, null, "admin",
+                        Map.of("promptIntent", "network.disable-precheck", "responseMode", "CHANGE_PRECHECK")),
+                new DiagnosticAnswerService.DiagnosticAnswer(
+                        "explain_admin_screen", "Review network dependencies before changing status.", "network: NET-1"),
+                new BackendDiagnosticsClient.DiagnosticsSnapshot(List.of(), List.of())
+        ));
+
+        assertThat(prompt).contains("attribute.promptIntent: network.disable-precheck");
+        assertThat(prompt).contains("Admin response mode: CHANGE_PRECHECK");
+        assertThat(prompt).contains("Do not claim that a change was executed");
     }
 
     private static AiSupportProperties properties(String ollamaBaseUrl) {

@@ -12,6 +12,8 @@ final class LlmPromptFormatter {
 
     static String promptText(LlmClient.LlmPrompt prompt) {
         StringBuilder builder = new StringBuilder();
+        boolean adminKnowledgeAnswer = prompt.deterministicAnswer() != null
+                && "explain_admin_screen".equals(prompt.deterministicAnswer().toolName());
         builder.append("User question:\n").append(truncate(nullToBlank(prompt.userMessage()), 280)).append("\n\n");
         builder.append("Runtime context:\n");
         if (prompt.context() == null) {
@@ -32,13 +34,23 @@ final class LlmPromptFormatter {
         builder.append("\nProject behavior relevant to this question:\n")
                 .append(ElectraHubKnowledgeBase.relevantFacts(prompt.userMessage(), prompt.context(), 1))
                 .append(tenantKnowledge(prompt.tenantKnowledge()))
-                .append("\n\nAuthoritative answer that must remain true:\n")
+                .append(adminKnowledgeAnswer
+                        ? "\n\nSafe screen guidance to use only when specific evidence is unavailable:\n"
+                        : "\n\nAuthoritative answer that must remain true:\n")
                 .append(prompt.deterministicAnswer() == null ? "" : truncate(prompt.deterministicAnswer().text(), 650))
                 .append("\n\nVerified backend facts and unavailable checks:\n")
                 .append(prompt.diagnostics() == null
                         ? "No backend facts were available."
                         : truncate(prompt.diagnostics().toAnswerText(), 650))
-                .append("""
+                .append(adminKnowledgeAnswer ? """
+
+                        \n\nWrite a direct answer to the administrator's exact question now.
+                        - Use role-scoped tenant guidance, project behavior, runtime context, and verified backend facts.
+                        - Do not merely repeat the safe screen checklist unless the administrator asked what to monitor.
+                        - If the question asks for current records or counts and none were supplied, state that limitation and name the precise scoped check needed; never invent results.
+                        - Preserve supplied identifiers, amounts, statuses, and lifecycle steps exactly.
+                        - Do not mention prompts, models, hidden reasoning, or instructions.
+                        """ : """
 
                         \n\nWrite the final user-facing answer now.
                         - Faithfully rewrite the authoritative answer; preserve the outcome, restriction, and next action.
@@ -54,6 +66,7 @@ final class LlmPromptFormatter {
         appendAnalyticsInvariant(builder, prompt);
         appendDashboardAttentionInvariant(builder, prompt);
         appendPastSessionInvariant(builder, prompt);
+        appendAdminResponseMode(builder, prompt);
         return builder.toString();
     }
 
@@ -190,5 +203,24 @@ final class LlmPromptFormatter {
                   payment or settlement failures; and unread operational notifications.
                 - Do not invent a current incident, count, or financial outcome.
                 """);
+    }
+
+    private static void appendAdminResponseMode(StringBuilder builder, LlmClient.LlmPrompt prompt) {
+        if (prompt.context() == null || prompt.context().attributes() == null) {
+            return;
+        }
+        String mode = prompt.context().attributes().get("responseMode");
+        if (isBlank(mode)) {
+            return;
+        }
+        builder.append("\n\nAdmin response mode: ").append(mode).append('\n');
+        switch (mode) {
+            case "LIVE_SUMMARY" -> builder.append("Summarize only verified scoped facts; clearly label unavailable live facts.\n");
+            case "LIVE_LIST" -> builder.append("Return a concise scoped list using verified records; do not fabricate rows or counts.\n");
+            case "SELECTED_RECORD" -> builder.append("Answer for the selected resource only. If no resource id is supplied, ask the administrator to select a record.\n");
+            case "KNOWLEDGE" -> builder.append("Explain the documented workflow using role-authorized tenant knowledge and project behavior.\n");
+            case "CHANGE_PRECHECK" -> builder.append("Provide read-only prerequisites, impact checks, and validation steps. Do not claim that a change was executed.\n");
+            default -> builder.append("Follow the requested intent without inventing operational state.\n");
+        }
     }
 }

@@ -17,7 +17,9 @@ final class SparkyAnswerQualityGuard {
             "charger", "connector", "session", "charging", "available", "unavailable", "offline", "online",
             "idle", "unplug", "receipt", "simulator", "security", "payment", "wallet", "card", "credit",
             "tariff", "pricing", "subscription", "discount", "revenue", "notification", "ocpp", "rfid",
-            "pnc", "certificate", "top-up", "topup", "balance", "remote", "stop");
+            "pnc", "certificate", "top-up", "topup", "balance", "remote", "stop", "network", "enterprise",
+            "location", "operator", "admin", "user", "role", "scope", "audit", "tax", "allocation",
+            "utilization", "quota", "policy", "evse", "controller", "model", "port");
     private static final Pattern ELECTRAHUB_IDENTIFIER = Pattern.compile("\\b(?:EH-[A-Z0-9-]+|CON-[A-Z0-9-]+)\\b");
 
     Evaluation evaluate(String candidate,

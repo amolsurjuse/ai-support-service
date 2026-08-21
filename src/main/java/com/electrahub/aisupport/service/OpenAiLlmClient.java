@@ -47,8 +47,9 @@ class OpenAiLlmClient implements LlmClient {
 
         String body = requestBody(prompt);
         long startedNanos = System.nanoTime();
-        log.info("OpenAI response request starting provider=openai model={} baseUrl={} promptChars={} requestBytes={} maxOutputTokens={} temperature={}",
-                properties.model(), sanitizeBaseUrl(properties.openaiBaseUrl()), LlmPromptFormatter.promptSize(prompt), body.length(), properties.maxOutputTokens(), properties.temperature());
+        log.info("OpenAI response request starting provider=openai model={} baseUrl={} promptChars={} requestBytes={} maxOutputTokens={} temperatureIncluded={}",
+                properties.model(), sanitizeBaseUrl(properties.openaiBaseUrl()), LlmPromptFormatter.promptSize(prompt),
+                body.length(), properties.maxOutputTokens(), supportsTemperature(properties.model()));
 
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -101,7 +102,9 @@ class OpenAiLlmClient implements LlmClient {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", properties.model());
         root.put("instructions", SupportPrompt.SYSTEM_PROMPT + "\n\n" + SupportPrompt.RESPONSE_CONTRACT);
-        root.put("temperature", properties.temperature());
+        if (supportsTemperature(properties.model())) {
+            root.put("temperature", properties.temperature());
+        }
         root.put("max_output_tokens", properties.maxOutputTokens());
 
         ArrayNode input = objectMapper.createArrayNode();
@@ -116,6 +119,14 @@ class OpenAiLlmClient implements LlmClient {
         input.add(user);
         root.set("input", input);
         return root.toString();
+    }
+
+    private static boolean supportsTemperature(String model) {
+        String normalized = model == null ? "" : model.trim().toLowerCase(java.util.Locale.ROOT);
+        return !(normalized.startsWith("gpt-5")
+                || normalized.startsWith("o1")
+                || normalized.startsWith("o3")
+                || normalized.startsWith("o4"));
     }
 
     private String extractOutputText(JsonNode json) {
