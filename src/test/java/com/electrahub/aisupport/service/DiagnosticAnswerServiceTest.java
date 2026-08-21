@@ -54,6 +54,65 @@ class DiagnosticAnswerServiceTest {
     }
 
     @Test
+    void everyAdminPortalScreenHasAdminAwareFallbackInsteadOfDriverHelp() {
+        DiagnosticAnswerService service = service();
+        Map<String, String> screens = Map.ofEntries(
+                Map.entry("dashboard", "dashboard"), Map.entry("users", "user"),
+                Map.entry("admin-users", "admin-user"), Map.entry("subscriptions", "subscription"),
+                Map.entry("rbac-policy", "rbac-policy"), Map.entry("charger-enterprise", "enterprise"),
+                Map.entry("charger-network", "network"), Map.entry("charger-location", "location"),
+                Map.entry("charger-groups", "charger-group"), Map.entry("chargers", "charger"),
+                Map.entry("evses", "evse"), Map.entry("connectors", "connector"),
+                Map.entry("allocations", "allocation"), Map.entry("utilizations", "subscription-utilization"),
+                Map.entry("charging-sessions", "session"), Map.entry("notifications", "notification"),
+                Map.entry("audit-logs", "audit-log"), Map.entry("pricing", "tariff"),
+                Map.entry("tax-configuration", "tax-policy"), Map.entry("network-operator", "network-operator"),
+                Map.entry("charge-station-make", "charge-station-make"), Map.entry("port-level", "port-level"),
+                Map.entry("charge-station-model", "charge-station-model"), Map.entry("site-controller", "site-controller"));
+
+        for (Map.Entry<String, String> screen : screens.entrySet()) {
+            ContextPayload context = new ContextPayload(
+                    screen.getKey(), screen.getValue(), screen.getKey(), null, null, null, null, "admin");
+            for (String prompt : List.of(
+                    "What should I monitor on this screen?",
+                    "What needs attention right now?",
+                    "Explain the next operational action.")) {
+                DiagnosticAnswerService.DiagnosticAnswer answer = service.answer(prompt, context, "Bearer token");
+                assertThat(answer.toolName())
+                        .as("admin screen %s prompt %s", screen.getKey(), prompt)
+                        .isNotEqualTo("driver_support_context");
+                assertThat(answer.text()).doesNotContain("why did start fail?");
+            }
+        }
+    }
+
+    @Test
+    void mapsAdminTaxAllocationAndUtilizationQuickPrompts() {
+        DiagnosticAnswerService service = service();
+        Map<String, List<String>> prompts = Map.of(
+                "tax-configuration", List.of(
+                        "Which locations are missing an effective tax policy?",
+                        "Explain the inheritance for this tax scope.",
+                        "What should I review before activating this policy?"),
+                "allocations", List.of(
+                        "Summarize allocation status and quota usage.",
+                        "Which allocations need review?",
+                        "Explain why a subscription allocation is exhausted."),
+                "utilizations", List.of(
+                        "Explain this subscription utilization.",
+                        "What affects a subscription discount?",
+                        "How can I investigate an unexpected quota consumption?"));
+
+        prompts.forEach((screen, questions) -> questions.forEach(question -> {
+            ContextPayload context = new ContextPayload(
+                    screen, screen, screen, null, null, null, null, "admin");
+            assertThat(service.answer(question, context, "Bearer token").toolName())
+                    .as("admin quick prompt %s", question)
+                    .isNotEqualTo("driver_support_context");
+        }));
+    }
+
+    @Test
     void answersIdentityWithoutDiagnosticsOrChargerContext() {
         BackendDiagnosticsClient diagnosticsClient = mock(BackendDiagnosticsClient.class);
         LlmClient llmClient = mock(LlmClient.class);

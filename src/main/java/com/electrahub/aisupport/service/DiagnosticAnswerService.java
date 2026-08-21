@@ -250,6 +250,8 @@ public class DiagnosticAnswerService {
             fallback = stuckPreparing(safeContext, diagnostics);
         } else if (message.contains("online") || message.contains("offline") || message.contains("heartbeat")) {
             fallback = heartbeat(safeContext, diagnostics);
+        } else if (isAdministrativeAudience(safeContext)) {
+            fallback = adminScreenGuidance(message, safeContext);
         } else {
             fallback = generalChargingHelp(safeContext, diagnostics);
         }
@@ -981,6 +983,53 @@ public class DiagnosticAnswerService {
         );
     }
 
+    private DiagnosticAnswer adminScreenGuidance(String message, ContextPayload context) {
+        String screen = normalize(firstNonBlank(context == null ? null : context.screen(),
+                context == null ? null : context.resourceType()));
+        String guidance = switch (screen) {
+            case "users", "user" -> "Review account status, assigned role, tenant scope, verification state, and recent access activity. Confirm the user belongs to the expected operator before changing access or account state.";
+            case "admin-users", "admin-user" -> "Review the administrator's role, assigned enterprise/network/location scope, account status, and recent audit activity. Apply least privilege and verify the target scope before granting or changing access.";
+            case "charger-enterprise", "enterprise" -> "Review enterprise status, owning operator, assigned networks, locations, charger totals, and any records outside the expected tenant scope. Confirm dependencies before disabling or changing ownership.";
+            case "charger-network", "network" -> "Review network status, owning enterprise/operator, assigned locations, charger availability, active sessions, and recent faults. Confirm scope and downstream impact before changing the network.";
+            case "charger-location", "location" -> "Review the location's network/enterprise assignment, address and timezone, charger/connector availability, pricing and tax policies, and active sessions. Resolve missing configuration before publishing or disabling the location.";
+            case "charger-groups", "charger-group" -> "Review group membership, location/network scope, charger status, pricing assignment, and active sessions. Verify that bulk changes affect only the intended chargers.";
+            case "evses", "evse" -> "Review EVSE identity, parent charger/location, connector inventory, OCPP status, power capability, and active or reserved sessions. Reconcile stale state with the latest charger event before editing.";
+            case "audit-logs", "audit-log" -> "Filter by actor, action, resource, tenant scope, outcome, and time range. Investigate failed or high-risk changes by correlating the audit entry with the affected resource and request identifier.";
+            case "tax-configuration", "tax-policy" -> taxGuidance(message);
+            case "allocations", "allocation" -> allocationGuidance(message);
+            case "utilizations", "subscription-utilization" -> utilizationGuidance(message);
+            case "network-operator" -> "Review operator status, tenant identity, assigned enterprises/networks, administrative users, payment configuration, and recent audit activity. Verify isolation boundaries before changing ownership or access.";
+            case "charge-station-make" -> "Review manufacturer identity, supported models, connector standards, and chargers using this make. Do not remove or rename it until dependent models and chargers are checked.";
+            case "charge-station-model" -> "Review manufacturer, power and connector capabilities, protocol compatibility, and deployed chargers. Validate compatibility before changing model defaults.";
+            case "port-level" -> "Review connector format, standard, power type, maximum power, and model dependencies. Confirm existing chargers will remain valid before changing the port definition.";
+            case "site-controller" -> "Review controller connectivity, assigned location/chargers, last heartbeat, software state, and active sessions. Confirm failover and charger impact before disabling or reassigning it.";
+            case "subscriptions", "subscription" -> "Review plan status, eligibility scope, quota and consumption rules, discount, validity dates, and current allocations. Confirm active subscribers and billing impact before changing the plan.";
+            case "rbac-policy" -> "Review the role's allowed operations and assigned enterprise, network, and location scope. Test both permitted access and cross-tenant denial before publishing a policy change.";
+            case "notifications", "notification" -> "Review the source event, session/resource identifier, notification type, deduplication key, delivery attempts, and final delivery state. Repeated backend events must not create duplicate alerts.";
+            case "pricing", "tariff" -> "Review tariff scope, currency, effective dates, time-of-use periods, energy/time/session/idle fees, caps, and overlapping assignments. Validate the resolved current price before activation.";
+            case "charging-sessions", "session" -> "Review selected session state, charger/connector state, latest OCPP event, authorization/payment state, meter values, pricing, and settlement. Do not mutate a session without confirming its current terminal or active state.";
+            case "chargers", "charger", "connectors", "connector" -> "Review live heartbeat, latest OCPP status, connector availability, active/reserved sessions, location assignment, and pricing. Reconcile stale state before an operational change.";
+            case "dashboard" -> "Review scoped failed starts, offline or faulted chargers, stuck or idle sessions, payment/settlement failures, and unread operational notifications. Use the selected date and tenant scope before drawing conclusions.";
+            default -> "Review the selected record's status, tenant scope, dependencies, recent audit activity, and active operational impact. Select a record for a precise diagnosis before making a change.";
+        };
+        return new DiagnosticAnswer("explain_admin_screen", guidance, contextSummary(context));
+    }
+
+    private static String taxGuidance(String message) {
+        if (containsAny(message, "inheritance", "inherit", "scope")) {
+            return "Resolve tax policy from the most specific effective scope: location override, then network, enterprise, and operator default. Verify currency, jurisdiction, effective dates, and that overlapping policies do not create ambiguity.";
+        }
+        return "Review locations without an effective tax policy, overlapping effective dates, jurisdiction/currency mismatches, inheritance source, and draft policies awaiting activation. Validate the resolved tax for affected locations before activation.";
+    }
+
+    private static String allocationGuidance(String message) {
+        return "Review allocation status, subscriber and plan scope, validity dates, granted quota, consumed and remaining quota, and exhausted or overlapping allocations. Reconcile unexpected usage with completed eligible sessions before changing quota.";
+    }
+
+    private static String utilizationGuidance(String message) {
+        return "Review the subscription allocation, eligible completed sessions, metered energy, discount applied, atomic quota deductions, remaining quota, and date/scope filters. Investigate duplicate session accounting or mismatched plan scope before correcting usage.";
+    }
+
     private String enrich(String baseText, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
         String liveFacts = diagnostics.toAnswerText();
         if (liveFacts.isBlank()) {
@@ -1232,6 +1281,15 @@ public class DiagnosticAnswerService {
 
     private static String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isAdministrativeAudience(ContextPayload context) {
+        String audience = normalize(context == null ? null : context.audience());
+        return containsAny(audience, "admin", "support", "csr");
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return isBlank(first) ? second : first;
     }
 
     private static boolean isBlank(String value) {
