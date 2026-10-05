@@ -57,7 +57,7 @@ class ChatController {
                                     HttpServletRequest servletRequest,
                                     @RequestHeader(name = "Prefer", required = false) String prefer) {
         IdentityContext identity = identityResolver.resolve(servletRequest);
-        toolAuthorization.requireAudienceAccess(identity, request.context());
+        toolAuthorization.requireAnalysisRequestAccess(identity, request.context(), request.content());
         quotaService.admit(identity, request.content());
         var pending = threadStore.create(identity, request.threadId(), request.content(), request.context());
         String authorization = servletRequest.getHeader("Authorization");

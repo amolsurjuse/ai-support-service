@@ -49,6 +49,11 @@ public class BackendDiagnosticsClient {
     private final AiAuditService auditService;
     private final DiagnosticIntentRouter intentRouter;
     private final HttpClient httpClient;
+    private final SupportSessionDiagnosticsClient supportSessions;
+    private SupportMcpInvestigationService mcpInvestigations;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setMcpInvestigations(SupportMcpInvestigationService investigations) { this.mcpInvestigations = investigations; }
     private final ExecutorService diagnosticsExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public BackendDiagnosticsClient(AiSupportProperties properties,
@@ -56,13 +61,15 @@ public class BackendDiagnosticsClient {
                                     AiToolAuthorizationService toolAuthorization,
                                     TrustedIdentityContextSigner identitySigner,
                                     AiAuditService auditService,
-                                    DiagnosticIntentRouter intentRouter) {
+                                    DiagnosticIntentRouter intentRouter,
+                                    SupportSessionDiagnosticsClient supportSessions) {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.toolAuthorization = toolAuthorization;
         this.identitySigner = identitySigner;
         this.auditService = auditService;
         this.intentRouter = intentRouter;
+        this.supportSessions = supportSessions;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout())
                 .build();
@@ -83,10 +90,23 @@ public class BackendDiagnosticsClient {
                 : context;
         DiagnosticRequestContext requestContext = new DiagnosticRequestContext(authorization, identity);
         toolAuthorization.requireAudienceAccess(identity, safeContext);
+        toolAuthorization.requireAnalysisRequestAccess(identity, safeContext, userMessage);
         List<NamedDiagnosticTask> tasks = new ArrayList<>();
         Set<String> selectedDiagnostics = intentRouter.route(userMessage, safeContext);
+        if (selectedDiagnostics.contains(DiagnosticIntentRouter.SESSION_INVESTIGATION)) {
+            toolAuthorization.requireSupportAnalysis(identity);
+            if (mcpInvestigations != null && mcpInvestigations.enabled()) {
+                return mcpInvestigations.collect(userMessage, safeContext, authorization, identity);
+            }
+        }
         for (String diagnostic : selectedDiagnostics) {
             switch (diagnostic) {
+                case DiagnosticIntentRouter.SESSION_INVESTIGATION -> addAuthorizedTask(
+                        tasks, diagnostic, requestContext, safeContext, (facts, gaps) -> {
+                            var report = supportSessions.collect(safeContext, authorization, identity);
+                            facts.addAll(report.facts());
+                            gaps.addAll(report.gaps());
+                        });
                 case DiagnosticIntentRouter.PAYMENT -> addAuthorizedTask(
                         tasks, diagnostic, requestContext, safeContext,
                         (facts, gaps) -> readPaymentState(requestContext, facts, gaps));
@@ -116,7 +136,8 @@ public class BackendDiagnosticsClient {
         boolean timedOut = false;
         try {
             CompletableFuture.allOf(tasks.stream().map(NamedDiagnosticTask::future).toArray(CompletableFuture[]::new))
-                    .get(Math.max(250, properties.diagnosticsTotalTimeoutMs()), TimeUnit.MILLISECONDS);
+                    .get(selectedDiagnostics.contains(DiagnosticIntentRouter.SESSION_INVESTIGATION)
+                            ? 9000 : Math.max(250, properties.diagnosticsTotalTimeoutMs()), TimeUnit.MILLISECONDS);
         } catch (TimeoutException ignored) {
             timedOut = true;
             log.info("Sparky diagnostics reached total timeoutMs={}", properties.diagnosticsTotalTimeoutMs());
@@ -757,23 +778,37 @@ public class BackendDiagnosticsClient {
         }
     }
 
-    public record DiagnosticsSnapshot(List<String> facts, List<String> gaps) {
+    public record DiagnosticsSnapshot(List<String> facts, List<String> gaps, List<String> references) {
+        public DiagnosticsSnapshot(List<String> facts, List<String> gaps) {
+            this(facts, gaps, List.of());
+        }
         public boolean hasFacts() {
             return !facts.isEmpty();
         }
 
         public String toAnswerText() {
+            return toAnswerText(12, 5);
+        }
+
+        public String toInvestigationText() {
+            String evidence = toAnswerText(facts.size(), gaps.size());
+            return references.isEmpty() ? evidence : evidence
+                    + "\n\nOperational context (versioned references, not customer events):\n"
+                    + String.join("\n", references.stream().map(value -> "- " + value).toList());
+        }
+
+        private String toAnswerText(int factLimit, int gapLimit) {
             StringBuilder builder = new StringBuilder();
             if (!facts.isEmpty()) {
                 builder.append("Live backend checks:\n");
-                facts.stream().limit(12).forEach(fact -> builder.append("- ").append(fact).append('\n'));
+                facts.stream().limit(factLimit).forEach(fact -> builder.append("- ").append(fact).append('\n'));
             }
             if (!gaps.isEmpty()) {
                 if (!builder.isEmpty()) {
                     builder.append('\n');
                 }
                 builder.append("Checks I could not complete:\n");
-                gaps.stream().limit(5).forEach(gap -> builder.append("- ").append(gap).append('\n'));
+                gaps.stream().limit(gapLimit).forEach(gap -> builder.append("- ").append(gap).append('\n'));
             }
             return builder.toString().trim();
         }

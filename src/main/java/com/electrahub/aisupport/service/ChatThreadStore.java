@@ -4,6 +4,7 @@ import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
 import com.electrahub.aisupport.model.ChatDtos.StreamEvent;
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
+import com.electrahub.aisupport.security.AiToolAuthorizationService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class ChatThreadStore {
+    private static final AiToolAuthorizationService AUTHORIZATION = new AiToolAuthorizationService();
     private static final Duration MINIMUM_TTL = Duration.ofMinutes(1);
     private final ConcurrentHashMap<UUID, MessageState> messages = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ThreadOwner> threadOwners = new ConcurrentHashMap<>();
@@ -29,6 +31,7 @@ public class ChatThreadStore {
     }
 
     public PendingMessage create(IdentityContext identity, UUID requestedThreadId, String content, ContextPayload context) {
+        AUTHORIZATION.requireAnalysisRequestAccess(identity, context, content);
         purgeExpired();
         UUID threadId = requestedThreadId == null ? UUID.randomUUID() : requestedThreadId;
         ThreadOwner owner = new ThreadOwner(identity.tenantId(), identity.userId());
@@ -40,7 +43,10 @@ public class ChatThreadStore {
         UUID messageId = UUID.randomUUID();
         PendingMessage pending = new PendingMessage(
                 threadId, messageId, identity.tenantId(), identity.userId(), content, context, Instant.now());
-        messages.put(messageId, new MessageState(pending));
+        boolean analysis = AUTHORIZATION.isSupportAnalysisRequest(context, content)
+                || (AUTHORIZATION.canAnalyzeSupport(identity) && context != null && !context.driverAudience()
+                    && context.sessionId() != null && !context.sessionId().isBlank());
+        messages.put(messageId, new MessageState(pending, analysis));
         return pending;
     }
 
@@ -111,12 +117,15 @@ public class ChatThreadStore {
         private final PendingMessage pending;
         private final List<StreamEvent> events = new ArrayList<>();
         private CompletedAnswer answer;
+        private volatile boolean analysis;
 
-        private MessageState(PendingMessage pending) {
+        private MessageState(PendingMessage pending, boolean analysis) {
             this.pending = pending;
+            this.analysis = analysis;
         }
 
         private synchronized void complete(CompletedAnswer completedAnswer) {
+            if ("diagnose_support_session".equals(completedAnswer.tool())) analysis = true;
             this.answer = completedAnswer;
             notifyAll();
         }
@@ -141,7 +150,9 @@ public class ChatThreadStore {
         }
 
         private boolean ownedBy(IdentityContext identity) {
-            return pending.tenantId().equals(identity.tenantId()) && pending.userId().equals(identity.userId());
+            return identity != null && pending.tenantId().equals(identity.tenantId())
+                    && pending.userId().equals(identity.userId())
+                    && (!analysis || AUTHORIZATION.canAnalyzeSupport(identity));
         }
     }
 }

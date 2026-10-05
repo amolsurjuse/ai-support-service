@@ -14,12 +14,18 @@ public class DiagnosticIntentRouter {
     public static final String CHARGER = "charger";
     public static final String OCPP_CONNECTION = "ocpp connection";
     public static final String OCPP_HISTORY = "ocpp history";
+    public static final String SESSION_INVESTIGATION = "session investigation";
 
     public Set<String> route(String userMessage, ContextPayload context) {
+        String responseMode = context == null || context.attributes() == null ? null : context.attributes().get("responseMode");
+        if ("KNOWLEDGE".equals(responseMode) || "CHANGE_PRECHECK".equals(responseMode)) {
+            return Set.of();
+        }
         String message = normalize(userMessage);
         if (message.isBlank()) {
             return Set.of();
         }
+        if (investigatesSession(userMessage, context)) return Set.of(SESSION_INVESTIGATION);
 
         LinkedHashSet<String> diagnostics = new LinkedHashSet<>();
         boolean receiptOrCost = containsAny(message,
@@ -56,6 +62,14 @@ public class DiagnosticIntentRouter {
 
     private static boolean hasRequestedSession(ContextPayload context) {
         return context != null && context.sessionId() != null && !context.sessionId().isBlank();
+    }
+
+    static boolean investigatesSession(String message, ContextPayload context) {
+        if (!isAdministrativeAudience(context) || !hasRequestedSession(context)) return false;
+        String mode = context.attributes() == null ? "" : context.attributes().get("responseMode");
+        if ("KNOWLEDGE".equals(mode) || "CHANGE_PRECHECK".equals(mode)) return false;
+        return "SELECTED_RECORD".equals(mode) || containsAny(normalize(message),
+                "diagnos", "investigat", "why", "stuck", "meter", "bill", "authorization", "subscription", "timeline");
     }
 
     private static boolean isAdministrativeAudience(ContextPayload context) {

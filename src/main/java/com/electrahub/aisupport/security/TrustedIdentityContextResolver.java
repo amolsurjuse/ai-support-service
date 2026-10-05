@@ -41,11 +41,13 @@ public class TrustedIdentityContextResolver {
             @Value("${spring.profiles.active:}") String activeProfiles
     ) {
         this.objectMapper = objectMapper;
-        if ((secret == null || secret.isBlank() || secret.startsWith("CHANGE_ME"))
+        boolean missingSecret = secret == null || secret.isBlank() || secret.startsWith("CHANGE_ME")
+                || "electrahub-local-access-context-secret".equals(secret);
+        if (missingSecret
                 && activeProfiles != null && activeProfiles.toLowerCase().contains("prod")) {
             throw new IllegalStateException("APP_INTERNAL_ACCESS_CONTEXT_SECRET must be configured in production");
         }
-        this.secret = secret.getBytes(StandardCharsets.UTF_8);
+        this.secret = (missingSecret ? "electrahub-local-access-context-secret" : secret).getBytes(StandardCharsets.UTF_8);
         this.requireSignedAuthenticated = requireSignedAuthenticated;
     }
 

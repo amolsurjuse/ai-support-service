@@ -29,6 +29,9 @@ class TrustedIdentityContextResolverTest {
                 objectMapper, "CHANGE_ME", true, "prod"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("APP_INTERNAL_ACCESS_CONTEXT_SECRET");
+        assertThatThrownBy(() -> new TrustedIdentityContextResolver(
+                objectMapper, "electrahub-local-access-context-secret", true, "prod"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

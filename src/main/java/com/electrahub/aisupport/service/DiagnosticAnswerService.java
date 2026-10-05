@@ -38,6 +38,13 @@ public class DiagnosticAnswerService {
     private final AdminCommandService adminCommandService;
     private final TenantAiPolicyService tenantPolicyService;
     private final BookStackKnowledgeClient bookStackKnowledgeClient;
+    private JevSupportRouter supportRouter;
+    private final com.electrahub.aisupport.security.AiToolAuthorizationService analysisAccess =
+            new com.electrahub.aisupport.security.AiToolAuthorizationService();
+    private final java.util.concurrent.ExecutorService supportSynthesis = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
+
+    @Autowired
+    void setSupportRouter(JevSupportRouter supportRouter) { this.supportRouter = supportRouter; }
 
     @Autowired
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -92,6 +99,9 @@ public class DiagnosticAnswerService {
                                    IdentityContext identity) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
+        if (supportRouter != null) safeContext = supportRouter.route(userMessage, safeContext, identity);
+        analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
         if (requiresSelectedRecord(safeContext)) {
             return selectedRecordRequired(safeContext);
         }
@@ -124,6 +134,9 @@ public class DiagnosticAnswerService {
                                             Consumer<String> onDelta) {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
+        analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
+        if (supportRouter != null) safeContext = supportRouter.route(userMessage, safeContext, identity);
+        analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
         if (requiresSelectedRecord(safeContext)) {
             DiagnosticAnswer answer = selectedRecordRequired(safeContext);
             onDelta.accept(answer.text());
@@ -142,7 +155,7 @@ public class DiagnosticAnswerService {
         BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(
                 message, safeContext, authorization, identity);
         DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics, identity);
-        if (!llmClient.available()) {
+        if (!llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
             onDelta.accept(fallback.text());
             return fallback;
         }
@@ -154,18 +167,19 @@ public class DiagnosticAnswerService {
             onDelta.accept(delta);
         };
         LlmClient.LlmPrompt prompt = new LlmClient.LlmPrompt(
-                redactor.redact(userMessage), safeContext, fallback, diagnostics, tenantKnowledge(identity, userMessage));
+                redactor.redact(userMessage), safeContext, fallback, diagnostics,
+                "diagnose_support_session".equals(fallback.toolName()) ? "" : tenantKnowledge(identity, userMessage));
         LlmClient.LlmCompletion completion = live
                 ? llmClient.completeStreaming(prompt, streamConsumer)
-                : llmClient.complete(prompt);
+                : completeForAnswer(prompt);
         if (!completion.ok() || completion.answer().isBlank()) {
             if (emitted.isEmpty()) {
                 onDelta.accept(fallback.text());
             }
             return fallback;
         }
-        SparkyAnswerQualityGuard.Evaluation evaluation = qualityGuard.evaluate(
-                completion.answer(), fallback, userMessage, safeContext);
+        SparkyAnswerQualityGuard.Evaluation evaluation = evaluateCompletion(
+                completion.answer(), fallback, userMessage, safeContext, diagnostics);
         if (!evaluation.accepted()) {
             log.warn("Sparky streaming quality guard rejected provider={} model={} tool={} rejection={} alreadyEmitted={}",
                     completion.provider(), completion.model(), fallback.toolName(), evaluation.reason(), !emitted.isEmpty());
@@ -175,12 +189,13 @@ public class DiagnosticAnswerService {
             }
             return new DiagnosticAnswer(fallback.toolName(), completion.answer(), fallback.contextSummary());
         }
+        String finalAnswer = withInvestigationEvidence(evaluation.answer(), fallback);
         if (!live) {
-            onDelta.accept(evaluation.answer());
+            onDelta.accept(finalAnswer);
         }
         log.info("Sparky streamed LLM answer provider={} model={} tool={} answerChars={}",
                 completion.provider(), completion.model(), fallback.toolName(), evaluation.answer().length());
-        return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
+        return new DiagnosticAnswer(fallback.toolName(), finalAnswer, fallback.contextSummary());
     }
 
     private DiagnosticAnswer deterministicAnswer(String message,
@@ -190,7 +205,11 @@ public class DiagnosticAnswerService {
                                                   IdentityContext identity) {
 
         DiagnosticAnswer fallback;
-        if (isRevenueDashboardQuestion(message, safeContext)) {
+        if (DiagnosticIntentRouter.investigatesSession(userMessage, safeContext)) {
+            return new DiagnosticAnswer("diagnose_support_session",
+                    "Selected-session investigation. Findings below are read-only; no operational action was executed.\n\n"
+                            + diagnostics.toInvestigationText(), contextSummary(safeContext));
+        } else if (isRevenueDashboardQuestion(message, safeContext)) {
             fallback = totalRevenueMetric(safeContext);
         } else if (isDashboardAttentionQuestion(message, safeContext)) {
             fallback = dashboardAttention(safeContext);
@@ -317,25 +336,25 @@ public class DiagnosticAnswerService {
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
                                                  DiagnosticAnswer fallback,
                                                  IdentityContext identity) {
-        if (!llmClient.available()) {
+        if (!llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
             log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
                     fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
             return fallback;
         }
-        LlmClient.LlmCompletion completion = llmClient.complete(new LlmClient.LlmPrompt(
+        LlmClient.LlmCompletion completion = completeForAnswer(new LlmClient.LlmPrompt(
                 redactor.redact(userMessage),
                 context,
                 fallback,
                 diagnostics,
-                tenantKnowledge(identity, userMessage)
+                "diagnose_support_session".equals(fallback.toolName()) ? "" : tenantKnowledge(identity, userMessage)
         ));
         if (!completion.ok() || completion.answer().isBlank()) {
             log.warn("Sparky using deterministic fallback reason=llm_completion_failed provider={} model={} tool={} error={}",
                     completion.provider(), completion.model(), fallback.toolName(), completion.error());
             return fallback;
         }
-        SparkyAnswerQualityGuard.Evaluation evaluation = qualityGuard.evaluate(
-                completion.answer(), fallback, userMessage, context);
+        SparkyAnswerQualityGuard.Evaluation evaluation = evaluateCompletion(
+                completion.answer(), fallback, userMessage, context, diagnostics);
         if (!evaluation.accepted()) {
             log.warn("Sparky using deterministic fallback reason=llm_quality_guard provider={} model={} tool={} rejection={}",
                     completion.provider(), completion.model(), fallback.toolName(), evaluation.reason());
@@ -343,7 +362,44 @@ public class DiagnosticAnswerService {
         }
         log.info("Sparky using LLM answer provider={} model={} tool={} answerChars={}",
                 completion.provider(), completion.model(), fallback.toolName(), evaluation.answer().length());
-        return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
+        return new DiagnosticAnswer(fallback.toolName(), withInvestigationEvidence(evaluation.answer(), fallback), fallback.contextSummary());
+    }
+
+    private static String withInvestigationEvidence(String summary, DiagnosticAnswer fallback) {
+        return "diagnose_support_session".equals(fallback.toolName())
+                ? summary + "\n\n" + fallback.text() : summary;
+    }
+
+    private static boolean unavailableInvestigation(DiagnosticAnswer answer, BackendDiagnosticsClient.DiagnosticsSnapshot evidence) {
+        return "diagnose_support_session".equals(answer.toolName()) && !evidence.hasFacts();
+    }
+
+    private LlmClient.LlmCompletion completeForAnswer(LlmClient.LlmPrompt prompt) {
+        if (!"diagnose_support_session".equals(prompt.deterministicAnswer().toolName())) return llmClient.complete(prompt);
+        var pending = supportSynthesis.submit(() -> llmClient.complete(prompt));
+        try {
+            return pending.get(12, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return LlmClient.LlmCompletion.failure("support", "none", "Support synthesis interrupted");
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException ex) {
+            return LlmClient.LlmCompletion.failure("support", "none", "Support synthesis unavailable or time budget exhausted");
+        } finally {
+            pending.cancel(true);
+        }
+    }
+
+    @jakarta.annotation.PreDestroy
+    void closeSupportSynthesis() { supportSynthesis.shutdownNow(); }
+
+    private SparkyAnswerQualityGuard.Evaluation evaluateCompletion(String candidate, DiagnosticAnswer fallback,
+            String message, ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot evidence) {
+        if ("diagnose_support_session".equals(fallback.toolName())) {
+            return SupportInvestigationAnswerRenderer.render(candidate, evidence)
+                    .map(SparkyAnswerQualityGuard.Evaluation::accepted)
+                    .orElseGet(() -> SparkyAnswerQualityGuard.Evaluation.rejected("invalid_support_evidence_selection"));
+        }
+        return qualityGuard.evaluate(candidate, fallback, message, context);
     }
 
     private String tenantKnowledge(IdentityContext identity, String userMessage) {

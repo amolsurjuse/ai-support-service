@@ -9,6 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,6 +49,21 @@ class ChatThreadStoreTenantIsolationTest {
         assertForbidden(() -> store.create(identity("tenant-a", "user-b"), threadId, "Third", context()));
         assertThat(store.create(identity("tenant-a", "user-a"), threadId, "Fourth", context()).threadId())
                 .isEqualTo(threadId);
+    }
+
+    @Test
+    void removedSupportRoleCannotReplayAnalysisTextOrEvents() throws Exception {
+        var support = new IdentityContext("tenant-a", "user-a", Set.of("SUPPORT"), true);
+        var revoked = new IdentityContext("tenant-a", "user-a", Set.of("ADMIN_READ_ONLY"), true);
+        var context = new ContextPayload("sessions", "session", "id", null, null, null, "id", "support",
+                Map.of("responseMode", "SELECTED_RECORD"));
+        var message = store.create(support, null, "Diagnose", context);
+        store.publish(support, message.messageId(), StreamEvent.token(message.messageId(), "Private evidence"));
+        store.complete(support, message.messageId(), new ChatThreadStore.CompletedAnswer("Private evidence", "diagnose_support_session", "", 10));
+        assertThat(store.find(support, message.messageId())).isPresent();
+        assertThat(store.find(revoked, message.messageId())).isEmpty();
+        assertThat(store.awaitEvents(revoked, message.messageId(), 0, Duration.ofMillis(1))).isEmpty();
+        assertThat(store.complete(revoked, message.messageId(), answer())).isEmpty();
     }
 
     private ChatThreadStore store() {

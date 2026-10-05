@@ -1,0 +1,157 @@
+# Example only. Bind image by digest and replace API-server CIDR/service labels for the target cluster.
+# Provision support-mcp-identity secret out of band with APP_INTERNAL_ACCESS_CONTEXT_SECRET
+# matching the gateway/AI host. This manifest deliberately contains no credential value.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: support-mcp
+  namespace: electrahub
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: support-mcp-inventory
+  namespace: electrahub
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: support-mcp-inventory
+  namespace: electrahub
+subjects:
+  - kind: ServiceAccount
+    name: support-mcp
+    namespace: electrahub
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: support-mcp-inventory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: support-mcp-memory
+  namespace: electrahub
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: support-mcp-service
+  namespace: electrahub
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: support-mcp-service}
+  template:
+    metadata:
+      labels: {app: support-mcp-service}
+    spec:
+      serviceAccountName: support-mcp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: mcp
+          image: electrahub/support-mcp-service:review-required
+          ports:
+            - {name: mcp, containerPort: 8095}
+            - {name: health, containerPort: 8097}
+          env:
+            - {name: MCP_BIND_ADDRESS, value: "0.0.0.0"}
+            - {name: MCP_MANAGEMENT_ADDRESS, value: "0.0.0.0"}
+            - {name: SUPPORT_MCP_GATEWAY_URL, value: "http://api-gateway:8090"}
+            - {name: SUPPORT_MCP_MEMORY_DIRECTORY, value: "/app/data"}
+            - {name: SUPPORT_MCP_CLUSTER_ENABLED, value: "false"}
+            - {name: SUPPORT_MCP_CLUSTER_NAMESPACES, value: "electrahub"}
+            - {name: SUPPORT_MCP_CLUSTER_ID, value: "configure-cluster-identity"}
+            - name: APP_INTERNAL_ACCESS_CONTEXT_SECRET
+              valueFrom:
+                secretKeyRef: {name: support-mcp-identity, key: APP_INTERNAL_ACCESS_CONTEXT_SECRET}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: memory, mountPath: /app/data}
+            - {name: tmp, mountPath: /app/tmp}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: health}
+            initialDelaySeconds: 15
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: health}
+            initialDelaySeconds: 30
+      volumes:
+        - name: memory
+          persistentVolumeClaim: {claimName: support-mcp-memory}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: support-mcp-service
+  namespace: electrahub
+spec:
+  type: ClusterIP
+  selector: {app: support-mcp-service}
+  ports:
+    - {name: mcp, port: 8095, targetPort: mcp}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: support-mcp-private
+  namespace: electrahub
+spec:
+  podSelector:
+    matchLabels: {app: support-mcp-service}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: ai-support-service}
+      ports: [{protocol: TCP, port: 8095}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports: [{protocol: TCP, port: 8097}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: api-gateway}
+      ports: [{protocol: TCP, port: 8090}]
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        # RFC 5737 documentation address: replace with actual API-server destination /32.
+        # Verify pre/post-DNAT behavior for the installed CNI. No broad internet egress.
+        - ipBlock: {cidr: 203.0.113.10/32}
+      ports: [{protocol: TCP, port: 443}]

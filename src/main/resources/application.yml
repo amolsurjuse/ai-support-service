@@ -51,6 +51,13 @@ electrahub:
     charger-service-url: ${CHARGER_SERVICE_URL:http://charger-management-service:8086}
     ocpp-service-url: ${OCPP_SERVICE_URL:http://ocpp-service:8082}
     gateway-url: ${API_GATEWAY_URL:http://api-gateway:8090}
+    mcp:
+      enabled: ${AI_SUPPORT_MCP_ENABLED:false}
+      url: ${AI_SUPPORT_MCP_URL:http://support-mcp-service:8095/mcp}
+      model-planning-enabled: ${AI_SUPPORT_MCP_MODEL_PLANNING_ENABLED:true}
+    jev:
+      enabled: ${AI_JEV_ROUTING_ENABLED:false}
+      api-key: ${AI_JEV_API_KEY:}
     admin-tool-timeout-ms: ${AI_ADMIN_TOOL_TIMEOUT_MS:4000}
     admin-approval-ttl-ms: ${AI_ADMIN_APPROVAL_TTL_MS:300000}
     diagnostics-timeout-ms: ${AI_DIAGNOSTICS_TIMEOUT_MS:1800}

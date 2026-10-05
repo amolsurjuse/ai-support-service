@@ -11,6 +11,7 @@ import java.util.Set;
 
 @Component
 public class AiToolAuthorizationService {
+    private static final Set<String> SUPPORT_ANALYSIS_ROLES = Set.of("SYSTEM_ADMIN", "SUPPORT");
     private static final Set<String> ADMIN_ROLES = Set.of(
             "SYSTEM_ADMIN", "TENANT_ADMIN", "ENTERPRISE_ADMIN", "NETWORK_ADMIN", "LOCATION_ADMIN", "SUPPORT",
             "ADMIN_READ_ONLY", "ENTERPRISE", "NETWORK", "LOCATION");
@@ -27,6 +28,9 @@ public class AiToolAuthorizationService {
 
     public boolean canRunDiagnostic(IdentityContext identity, ContextPayload context, String diagnostic) {
         requireAudienceAccess(identity, context);
+        if ("session investigation".equals(diagnostic) || "ocpp history".equals(diagnostic)) {
+            return canAnalyzeSupport(identity);
+        }
         if (isAdministrativeAudience(context) && isAdministrator(identity)) {
             return true;
         }
@@ -39,9 +43,47 @@ public class AiToolAuthorizationService {
     }
 
     public boolean isAdministrator(IdentityContext identity) {
-        return identity != null && identity.roles().stream()
+        return identity != null && identity.authenticated() && identity.roles() != null && identity.roles().stream()
                 .map(role -> role.toUpperCase(Locale.ROOT))
                 .anyMatch(ADMIN_ROLES::contains);
+    }
+
+    public boolean canAnalyzeSupport(IdentityContext identity) {
+        return identity != null && identity.authenticated() && identity.roles() != null && identity.roles().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(role -> role.trim().toUpperCase(Locale.ROOT))
+                .anyMatch(SUPPORT_ANALYSIS_ROLES::contains);
+    }
+
+    public void requireSupportAnalysis(IdentityContext identity) {
+        if (!canAnalyzeSupport(identity)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Session analysis is available only to authenticated System Admin and Support users.");
+        }
+    }
+
+    public void requireAnalysisRequestAccess(IdentityContext identity, ContextPayload context, String message) {
+        requireAudienceAccess(identity, context);
+        if (isSupportAnalysisRequest(context, message)) {
+            requireSupportAnalysis(identity);
+        }
+    }
+
+    /** Client hints select presentation, never grant access to customer evidence. */
+    public boolean isSupportAnalysisRequest(ContextPayload context, String message) {
+        if (context == null) return false;
+        String mode = context.attributes() == null ? "" : context.attributes().getOrDefault("responseMode", "");
+        mode = mode == null ? "" : mode.trim().toUpperCase(Locale.ROOT);
+        if (Set.of("ANALYSIS", "SESSION_ANALYSIS", "SESSION_INVESTIGATION").contains(mode)) return true;
+        boolean selectedSession = (context.sessionId() != null && !context.sessionId().isBlank())
+                || (context.resourceType() != null && context.resourceType().toLowerCase(Locale.ROOT).contains("session"))
+                || (context.screen() != null && context.screen().toLowerCase(Locale.ROOT).contains("session"));
+        if ("SELECTED_RECORD".equals(mode) && selectedSession) return true;
+        if (Set.of("KNOWLEDGE", "CHANGE_PRECHECK").contains(mode)) return false;
+        String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        return isAdministrativeAudience(context) && context.sessionId() != null && !context.sessionId().isBlank()
+                && Set.of("diagnos", "investigat", "why", "stuck", "meter", "bill", "authorization", "subscription", "timeline")
+                .stream().anyMatch(normalized::contains);
     }
 
     public boolean canExecuteAdminMutation(IdentityContext identity) {

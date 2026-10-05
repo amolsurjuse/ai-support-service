@@ -187,6 +187,7 @@ class OllamaLlmClient implements LlmClient {
         ObjectNode options = objectMapper.createObjectNode();
         options.put("temperature", properties.temperature());
         options.put("num_predict", maxOutputTokens());
+        if (promptText.startsWith("SUPPORT_EVIDENCE_SELECTION_V1")) options.put("num_ctx", 16384);
         root.set("options", options);
 
         ArrayNode messages = objectMapper.createArrayNode();

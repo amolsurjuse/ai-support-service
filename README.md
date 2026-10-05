@@ -9,6 +9,7 @@ ElectraHub Sparky support assistant for driver-facing iOS/Android chat and admin
 - Driver mode is safe by default and does not expose engineer-only internals.
 - Every message is evaluated once, cached for the short-lived SSE stream, and rendered consistently across iOS, Android, and the admin portal.
 - Deterministic diagnostics remain the source of truth; the LLM improves clarity only after a grounding and safety quality check.
+- Selected-session analysis is restricted to authenticated System Admin and Support roles. The private MCP integration adds scoped organization evidence, versioned workflow knowledge and expiring cluster memory; see [implementation and rollout](docs/sparky-mcp-host.md).
 
 ## Driver support contract
 

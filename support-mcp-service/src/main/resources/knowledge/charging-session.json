@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "flowId": "charging-session",
+  "reviewedAt": "2026-10-05",
+  "classification": "expected-code-paths-not-observed-runtime-evidence",
+  "provenancePolicy": "Source commits identify inspected checkout baselines. Files marked workingTreeChange include pre-existing or current uncommitted implementation. A release owner must review this catalog and bind it to deployed image digests before treating it as deployed behavior.",
+  "steps": [
+    {"phase": "START", "repository": "session-service", "expected": "An authorized driver start request creates session intent; payment confirmation, tariff and subscription snapshots and remote-start acceptance are separate milestones.", "evidence": ["START_REQUESTED", "paymentStartConfirmationStatus", "paymentStartConfirmedAt", "REMOTE_START_ACCEPTED", "startedAt"], "interpretation": "A remote-start acceptance does not prove physical charging started."},
+    {"phase": "PAYMENT_AUTHORIZATION", "repository": "payment-service", "expected": "Read persisted authorization amount, currency, status, expiry and release timestamps.", "evidence": ["authorizedAmount", "status", "processedAt", "expiresAt", "releaseRequestedAt", "releasedAt"], "interpretation": "Authorization is not capture or proof of the bank's current blocked balance. Diagnostic reads must not poll or mutate provider state."},
+    {"phase": "CHARGING_AND_METERING", "repository": "session-service", "expected": "Correlate persisted lifecycle events and first/last meter sample with charger transaction evidence.", "evidence": ["OCPP transaction", "meterStart", "meterStop", "stored sample rows", "firstTimestamp", "lastTimestamp", "energyKwh"], "interpretation": "Sample-row count is not OCPP message count. Connector/time-window correlation is weaker than exact transaction correlation. Missing telemetry alone does not prove charging stopped."},
+    {"phase": "STOP", "repository": "session-service", "expected": "Compare remote-stop request, stop acknowledgment, actual stoppedAt and any unplug requirement.", "evidence": ["remoteStopRequestedAt", "stoppedAt", "stopReason", "terminal OCPP event", "unplugRequiredToStop"], "interpretation": "State alone does not establish that a session is stuck. Identify missing milestone and elapsed time; mark unavailable thresholds and correlation gaps."},
+    {"phase": "BILL_AND_SUBSCRIPTION", "repository": "session-service", "expected": "Use the persisted tariff and subscription snapshot and backend billing evidence for energy/time/flat/idle fees, caps, quota coverage and discount.", "evidence": ["subscriptionAllocationId", "subscriptionPlanCode", "coveredEnergyKwh", "uncoveredEnergyKwh", "subscriptionDiscountAmount", "tariff rates", "sessionMaxAmount", "idleFeeMaxAmount", "backend billing breakdown"], "interpretation": "Do not recalculate an authoritative bill with a language model. Report backend calculation, units, currency and any reconciliation gap."},
+    {"phase": "SETTLEMENT", "repository": "session-service", "expected": "Inspect latest payment settlement attempt and release evidence independently from terminal session status.", "evidence": ["PAYMENT_SETTLED", "PAYMENT_SETTLEMENT_FAILED", "authorizationReleasedAt"], "interpretation": "COMPLETED or BILLED does not alone prove payment capture. No refund, retry, stop, release or billing correction is performed by these tools."}
+  ],
+  "sources": [
+    {"repository": "session-service", "commit": "04d63c4bbbcca688320cddc191785c8eec6384f0", "path": "src/main/java/com/electrahub/session/service/DriverChargingOrchestrationService.java", "workingTreeChange": true},
+    {"repository": "session-service", "commit": "04d63c4bbbcca688320cddc191785c8eec6384f0", "path": "src/main/java/com/electrahub/session/service/SessionDiagnosticsService.java", "workingTreeChange": true},
+    {"repository": "session-service", "commit": "04d63c4bbbcca688320cddc191785c8eec6384f0", "path": "src/main/java/com/electrahub/session/service/SessionBillingEvidenceReader.java", "workingTreeChange": true},
+    {"repository": "session-service", "commit": "04d63c4bbbcca688320cddc191785c8eec6384f0", "path": "src/main/java/com/electrahub/session/service/integration/SessionOcppEvidenceClient.java", "workingTreeChange": true},
+    {"repository": "payment-service", "commit": "53c26e44da30c8f07a344c5eeb29e4d8579cc760", "path": "src/main/java/com/electrahub/payment/api/SessionPaymentDiagnosticsController.java", "workingTreeChange": true},
+    {"repository": "charger-management-service", "commit": "10d67e5cfd02", "path": "src/main/java/com/electrahub/charger/service/ChargerAdminService.java", "workingTreeChange": false}
+  ],
+  "organizationAuthority": "The authorized session's stored enterpriseId/networkId/locationId/chargerId establish the selected session context. Requester tenant is a separate identity claim. Kubernetes namespace/labels do not prove organization ownership.",
+  "routes": [
+    {"tool": "get_session_evidence", "route": "GET /session/api/v1/sessions/admin/{sessionId}/diagnostics", "repository": "session-service", "authorization": "SYSTEM_ADMIN or SUPPORT plus signed gateway scope and session ownership access"},
+    {"tool": "get_org_context", "route": "GET /session/api/v1/sessions/admin/{sessionId}/diagnostics", "repository": "session-service", "authorization": "Same scoped session route; only curated organizationContext returned"},
+    {"tool": "get_service_topology", "route": "Private allowlisted Kubernetes inventory", "repository": "support-mcp-service", "authorization": "Signed SYSTEM_ADMIN or SUPPORT; namespace-scoped Kubernetes read account for collection"},
+    {"tool": "get_flow_definition", "route": "Immutable packaged reviewed flow catalog", "repository": "support-mcp-service", "authorization": "Signed SYSTEM_ADMIN or SUPPORT"}
+  ],
+  "gaps": ["This flow catalog is reviewed source knowledge, not learned customer memory or model fine-tuning.", "No production deployment manifests or live trace correlations were verified during implementation.", "Repository inventory is discovery metadata; it is not permission to invoke every API."]
+}

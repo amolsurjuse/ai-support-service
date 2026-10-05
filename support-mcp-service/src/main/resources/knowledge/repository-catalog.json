@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-28",
+  "source": "Reviewed repository design inventory; not live deployment inventory",
+  "repositories": [
+    {
+      "repository": "admin-portal-ui",
+      "head": "7894bb5c8d83",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 125,
+      "httpMappings": 0
+    },
+    {
+      "repository": "agentic-workflow-orchestrator",
+      "head": "0e800e119ba6",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 145,
+      "httpMappings": 0
+    },
+    {
+      "repository": "ai-support-service",
+      "head": "e04ce07712d7",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 74,
+      "httpMappings": 2
+    },
+    {
+      "repository": "api-gateway",
+      "head": "900be5219db2",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 50,
+      "httpMappings": 2
+    },
+    {
+      "repository": "auth-service",
+      "head": "12575b3557b8",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 109,
+      "httpMappings": 15
+    },
+    {
+      "repository": "billing-service",
+      "head": "4e741bc33401",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 115,
+      "httpMappings": 34
+    },
+    {
+      "repository": "charger-management-service",
+      "head": "10d67e5cfd02",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 165,
+      "httpMappings": 57
+    },
+    {
+      "repository": "community-voting-service",
+      "head": "fd34113d872e",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 29,
+      "httpMappings": 16
+    },
+    {
+      "repository": "driver-portal-android",
+      "head": "93a12940af29",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 24,
+      "httpMappings": 0
+    },
+    {
+      "repository": "driver-portal-frontend",
+      "head": "0400fa81fbbc",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 45,
+      "httpMappings": 0
+    },
+    {
+      "repository": "driver-portal-ios",
+      "head": "0a2edf6408da",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 70,
+      "httpMappings": 0
+    },
+    {
+      "repository": "electra-hub-org-page",
+      "head": "9aa4b3499797",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 1,
+      "httpMappings": 0
+    },
+    {
+      "repository": "identity-platform",
+      "head": "ce899696e79d",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 147,
+      "httpMappings": 35
+    },
+    {
+      "repository": "java-expert-learning",
+      "head": "ef58b7ae98dc",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 10,
+      "httpMappings": 0
+    },
+    {
+      "repository": "k8s-platform",
+      "head": "ca1f7f1aeebd",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 531,
+      "httpMappings": 0
+    },
+    {
+      "repository": "kubernetes",
+      "head": "8b47dfc2799e",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 1,
+      "httpMappings": 0
+    },
+    {
+      "repository": "notification-service",
+      "head": "052c3a9835f2",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 96,
+      "httpMappings": 16
+    },
+    {
+      "repository": "ocpi-service",
+      "head": "ad3c6b9b62e4",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 125,
+      "httpMappings": 35
+    },
+    {
+      "repository": "ocpi-simulator",
+      "head": "5607875a96b8",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 331,
+      "httpMappings": 0
+    },
+    {
+      "repository": "ocpp-service",
+      "head": "492682c0ef1c",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 162,
+      "httpMappings": 19
+    },
+    {
+      "repository": "payment-gateway-service",
+      "head": "fe614bd5c2c2",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 70,
+      "httpMappings": 24
+    },
+    {
+      "repository": "payment-service",
+      "head": "53c26e44da30",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 140,
+      "httpMappings": 39
+    },
+    {
+      "repository": "plug-and-charge-platform",
+      "head": "3927b09f86e9",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 209,
+      "httpMappings": 34
+    },
+    {
+      "repository": "pricing-service",
+      "head": "09ba837dd750",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 122,
+      "httpMappings": 28
+    },
+    {
+      "repository": "session-service",
+      "head": "04d63c4bbbcc",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 185,
+      "httpMappings": 54
+    },
+    {
+      "repository": "station-management-service",
+      "head": "e14ea75c4b27",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 81,
+      "httpMappings": 39
+    },
+    {
+      "repository": "subscription-service",
+      "head": "916c30c68e2a",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 83,
+      "httpMappings": 20
+    },
+    {
+      "repository": "user-service",
+      "head": "255f8765e702",
+      "hasWorkingTreeChanges": true,
+      "sourceFiles": 167,
+      "httpMappings": 39
+    },
+    {
+      "repository": "web-socket-connector",
+      "head": "46f9b3a113eb",
+      "hasWorkingTreeChanges": false,
+      "sourceFiles": 9,
+      "httpMappings": 0
+    }
+  ]
+}

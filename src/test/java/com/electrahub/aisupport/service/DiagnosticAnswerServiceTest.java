@@ -2,6 +2,8 @@ package com.electrahub.aisupport.service;
 
 import com.electrahub.aisupport.config.AiSupportProperties;
 import com.electrahub.aisupport.model.ChatDtos.ContextPayload;
+import com.electrahub.aisupport.security.TrustedIdentityContextResolver.IdentityContext;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -21,6 +23,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 class DiagnosticAnswerServiceTest {
+    private static final IdentityContext TRUSTED_ADMIN = new IdentityContext("tenant", "admin", Set.of("SYSTEM_ADMIN"), true);
 
     @Test
     void everyApprovedEvaluationPromptHasADeterministicIntentMapping() throws Exception {
@@ -43,7 +46,7 @@ class DiagnosticAnswerServiceTest {
                     cases.group(2));
 
             DiagnosticAnswerService.DiagnosticAnswer answer = service.answer(
-                    cases.group(4), context, "Bearer token");
+                    cases.group(4), context, "Bearer token", TRUSTED_ADMIN);
 
             assertThat(answer.toolName())
                     .as("evaluation prompt %s must not fall through to generic help", id)
@@ -77,7 +80,7 @@ class DiagnosticAnswerServiceTest {
                     "What should I monitor on this screen?",
                     "What needs attention right now?",
                     "Explain the next operational action.")) {
-                DiagnosticAnswerService.DiagnosticAnswer answer = service.answer(prompt, context, "Bearer token");
+                DiagnosticAnswerService.DiagnosticAnswer answer = service.answer(prompt, context, "Bearer token", TRUSTED_ADMIN);
                 assertThat(answer.toolName())
                         .as("admin screen %s prompt %s", screen.getKey(), prompt)
                         .isNotEqualTo("driver_support_context");
@@ -106,7 +109,7 @@ class DiagnosticAnswerServiceTest {
         prompts.forEach((screen, questions) -> questions.forEach(question -> {
             ContextPayload context = new ContextPayload(
                     screen, screen, screen, null, null, null, null, "admin");
-            assertThat(service.answer(question, context, "Bearer token").toolName())
+            assertThat(service.answer(question, context, "Bearer token", TRUSTED_ADMIN).toolName())
                     .as("admin quick prompt %s", question)
                     .isNotEqualTo("driver_support_context");
         }));
@@ -155,7 +158,7 @@ class DiagnosticAnswerServiceTest {
         String answer = service.renderForClient(service.answer(
                 "Remote stop was requested but idle fee is still running and receipt should not be generated yet.",
                 context,
-                "Bearer token"));
+                "Bearer token", TRUSTED_ADMIN));
 
         assertThat(answer).contains("Support should check session-service state first");
         assertThat(answer).contains("ocpp-service and simulator state");
@@ -204,7 +207,7 @@ class DiagnosticAnswerServiceTest {
         String answer = service.renderForClient(service.answer(
                 "Total revenue",
                 context,
-                "Bearer token"));
+                "Bearer token", TRUSTED_ADMIN));
 
         assertThat(answer).contains("completed charging revenue");
         assertThat(answer).contains("selected dashboard date filter");
@@ -226,7 +229,7 @@ class DiagnosticAnswerServiceTest {
                         "filterLocationId", "all"
                 ));
 
-        String answer = service.renderForClient(service.answer("What is total revenue?", context, "Bearer token"));
+        String answer = service.renderForClient(service.answer("What is total revenue?", context, "Bearer token", TRUSTED_ADMIN));
 
         assertThat(answer).contains("USD 72,127.03");
         assertThat(answer).contains("1,721 completed session(s)");
@@ -333,7 +336,7 @@ class DiagnosticAnswerServiceTest {
         String answer = service.renderForClient(service.answer(
                 "Why is a session still idle after remote stop?",
                 context,
-                "Bearer token"));
+                "Bearer token", TRUSTED_ADMIN));
 
         assertThat(answer).contains("session-service state first");
         assertThat(answer).contains("remoteStopRequestedAt");
@@ -491,7 +494,7 @@ class DiagnosticAnswerServiceTest {
         String answer = service.renderForClient(service.answer(
                 "Can an unknown RFID tag start a session?",
                 context,
-                "Bearer token"));
+                "Bearer token", TRUSTED_ADMIN));
 
         assertThat(answer).contains("unknown or unauthorized tag must be rejected");
         assertThat(answer).contains("must not create a transaction or charging session");
@@ -506,7 +509,7 @@ class DiagnosticAnswerServiceTest {
         String answer = service.renderForClient(service.answer(
                 "What happens when Plug and Charge certificate validation fails?",
                 context,
-                "Bearer token"));
+                "Bearer token", TRUSTED_ADMIN));
 
         assertThat(answer).contains("EMAID and contract certificate");
         assertThat(answer).contains("authorization must be rejected");
@@ -599,33 +602,33 @@ class DiagnosticAnswerServiceTest {
         ContextPayload rbac = new ContextPayload("rbac-policy", "admin", null, null, null, null, null, "admin");
         ContextPayload notifications = new ContextPayload("notifications", "notification", null, null, null, null, null, "admin");
 
-        assertThat(service.answer("What needs attention on this dashboard?", dashboard, "Bearer token").text())
+        assertThat(service.answer("What needs attention on this dashboard?", dashboard, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("failed starts", "offline or faulted chargers");
-        assertThat(service.answer("What should I monitor for charging success?", dashboard, "Bearer token").text())
+        assertThat(service.answer("What should I monitor for charging success?", dashboard, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("eligible charging attempts", "Manual driver cancellations");
-        assertThat(service.answer("What should I check before remotely stopping an active session?", sessions, "Bearer token").text())
+        assertThat(service.answer("What should I check before remotely stopping an active session?", sessions, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("idle fees are enabled", "until unplug");
-        assertThat(service.answer("What should I check before changing charger status?", chargers, "Bearer token").text())
+        assertThat(service.answer("What should I check before changing charger status?", chargers, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("last OCPP heartbeat", "Inoperative");
-        assertThat(service.answer("What should happen after an explicit Available status?", chargers, "Bearer token").text())
+        assertThat(service.answer("What should happen after an explicit Available status?", chargers, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("must not include a transaction id", "terminal state");
-        assertThat(service.answer("How do idle-fee and session caps work?", pricing, "Bearer token").text())
+        assertThat(service.answer("How do idle-fee and session caps work?", pricing, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("enforced by the backend", "idle-fee cap");
-        assertThat(service.answer("Why must receipt totals match active-session cost?", pricing, "Bearer token").text())
+        assertThat(service.answer("Why must receipt totals match active-session cost?", pricing, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("final billable record", "Do not calculate or correct the total in the UI");
-        assertThat(service.answer("Why was a subscription discount not applied?", subscriptions, "Bearer token").text())
+        assertThat(service.answer("Why was a subscription discount not applied?", subscriptions, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("scope matches", "remaining quota");
-        assertThat(service.answer("How is subscription quota consumed?", subscriptions, "Bearer token").text())
+        assertThat(service.answer("How is subscription quota consumed?", subscriptions, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("eligible energy", "atomically");
-        assertThat(service.answer("What should happen when a quota is exhausted?", subscriptions, "Bearer token").text())
+        assertThat(service.answer("What should happen when a quota is exhausted?", subscriptions, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("normal applicable tariff", "remaining quota is zero");
-        assertThat(service.answer("What can a location administrator access?", rbac, "Bearer token").text())
+        assertThat(service.answer("What can a location administrator access?", rbac, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("server-derived role and data scope", "location's chargers");
-        assertThat(service.answer("Why is this administrator receiving Forbidden?", rbac, "Bearer token").text())
+        assertThat(service.answer("Why is this administrator receiving Forbidden?", rbac, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("Forbidden response", "does not permit that operation");
-        assertThat(service.answer("Why was this notification generated?", notifications, "Bearer token").text())
+        assertThat(service.answer("Why was this notification generated?", notifications, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("backend confirms", "delivery state");
-        assertThat(service.answer("What should happen when push delivery fails?", notifications, "Bearer token").text())
+        assertThat(service.answer("What should happen when push delivery fails?", notifications, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("retry transient Firebase failures", "dead-letter");
     }
 

@@ -1,0 +1,36 @@
+server:
+  address: ${MCP_BIND_ADDRESS:127.0.0.1}
+  port: ${MCP_PORT:8095}
+  max-http-request-header-size: 16KB
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: support-mcp-service
+management:
+  server:
+    port: ${MCP_MANAGEMENT_PORT:8097}
+    address: ${MCP_MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+support-mcp:
+  identity-secret: ${APP_INTERNAL_ACCESS_CONTEXT_SECRET:}
+  gateway-url: ${SUPPORT_MCP_GATEWAY_URL:http://api-gateway:8090}
+  memory-directory: ${SUPPORT_MCP_MEMORY_DIRECTORY:./data}
+  cluster:
+    enabled: ${SUPPORT_MCP_CLUSTER_ENABLED:false}
+    id: ${SUPPORT_MCP_CLUSTER_ID:local}
+    api-url: ${SUPPORT_MCP_CLUSTER_API_URL:https://kubernetes.default.svc}
+    namespaces: ${SUPPORT_MCP_CLUSTER_NAMESPACES:electrahub}
+    reconcile-ms: ${SUPPORT_MCP_CLUSTER_RECONCILE_MS:60000}
+    ttl-seconds: ${SUPPORT_MCP_CLUSTER_TTL_SECONDS:180}
+    token-path: ${SUPPORT_MCP_CLUSTER_TOKEN_PATH:/var/run/secrets/kubernetes.io/serviceaccount/token}
+    ca-path: ${SUPPORT_MCP_CLUSTER_CA_PATH:/var/run/secrets/kubernetes.io/serviceaccount/ca.crt}
