@@ -38,12 +38,15 @@ public class DiagnosticAnswerService {
     private final TenantAiPolicyService tenantPolicyService;
     private final BookStackKnowledgeClient bookStackKnowledgeClient;
     private JevSupportRouter supportRouter;
+    private AdminPromptIntentRegistry promptIntents;
     private final com.electrahub.aisupport.security.AiToolAuthorizationService analysisAccess =
             new com.electrahub.aisupport.security.AiToolAuthorizationService();
     private final java.util.concurrent.ExecutorService supportSynthesis = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
 
     @Autowired
     void setSupportRouter(JevSupportRouter supportRouter) { this.supportRouter = supportRouter; }
+    @Autowired
+    void setPromptIntents(AdminPromptIntentRegistry promptIntents) { this.promptIntents = promptIntents; }
 
     @Autowired
     DiagnosticAnswerService(AiSupportProperties properties,
@@ -99,6 +102,10 @@ public class DiagnosticAnswerService {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
         analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
+        if (promptIntents != null) {
+            var catalogAnswer = promptIntents.answer(userMessage, safeContext);
+            if (catalogAnswer.isPresent()) return catalogAnswer.get();
+        }
         if (supportRouter != null) safeContext = supportRouter.route(userMessage, safeContext, identity);
         analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
         if (requiresSelectedRecord(safeContext)) {
@@ -134,6 +141,13 @@ public class DiagnosticAnswerService {
         String message = redactor.redact(userMessage).toLowerCase();
         ContextPayload safeContext = context == null ? new ContextPayload(null, null, null, null, null, null, null, "driver") : context;
         analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
+        if (promptIntents != null) {
+            var catalogAnswer = promptIntents.answer(userMessage, safeContext);
+            if (catalogAnswer.isPresent()) {
+                onDelta.accept(catalogAnswer.get().text());
+                return catalogAnswer.get();
+            }
+        }
         if (supportRouter != null) safeContext = supportRouter.route(userMessage, safeContext, identity);
         analysisAccess.requireAnalysisRequestAccess(identity, safeContext, userMessage);
         if (requiresSelectedRecord(safeContext)) {
@@ -154,7 +168,8 @@ public class DiagnosticAnswerService {
         BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(
                 message, safeContext, authorization, identity);
         DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics, identity);
-        if (isDashboardSummary(fallback) || !llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
+        if (isDashboardSummary(fallback) || isCatalogSessionQuestion(fallback, safeContext)
+                || !llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
             onDelta.accept(fallback.text());
             return fallback;
         }
@@ -336,7 +351,8 @@ public class DiagnosticAnswerService {
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
                                                  DiagnosticAnswer fallback,
                                                  IdentityContext identity) {
-        if (isDashboardSummary(fallback) || !llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
+        if (isDashboardSummary(fallback) || isCatalogSessionQuestion(fallback, context)
+                || !llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
             log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
                     fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
             return fallback;
@@ -367,6 +383,12 @@ public class DiagnosticAnswerService {
 
     private static boolean isDashboardSummary(DiagnosticAnswer answer) {
         return "summarize_dashboard".equals(answer.toolName());
+    }
+
+    private static boolean isCatalogSessionQuestion(DiagnosticAnswer answer, ContextPayload context) {
+        return "diagnose_support_session".equals(answer.toolName())
+                && Set.of("sessions.overview", "sessions.stuck", "sessions.meter-cost", "sessions.authorization")
+                .contains(AdminPromptIntentRegistry.attribute(context, "promptIntent"));
     }
 
     private static boolean unavailableInvestigation(DiagnosticAnswer answer, BackendDiagnosticsClient.DiagnosticsSnapshot evidence) {
@@ -413,16 +435,9 @@ public class DiagnosticAnswerService {
     }
 
     public String renderForClient(DiagnosticAnswer answer) {
-        if (answer == null) {
-            return "";
-        }
-        // Selected-session prose already identifies what was actually verified. Browser
-        // context alone must never turn an unavailable lookup into "I checked charger".
-        if ("diagnose_support_session".equals(answer.toolName())
-                || answer.contextSummary() == null || answer.contextSummary().isBlank()) {
-            return answer.text();
-        }
-        return "I checked " + answer.contextSummary() + ".\n\n" + answer.text();
+        // Context describes the UI selection, not a completed query. Evidence readers
+        // state their own scope and timestamps only after a successful read.
+        return answer == null ? "" : answer.text();
     }
 
     private DiagnosticAnswer chargingUnavailable(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
@@ -1011,6 +1026,8 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer dashboardSummary(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        if (!AdminPromptIntentRegistry.attribute(context, "promptIntent").isBlank())
+            return new DiagnosticAnswer("summarize_dashboard", DashboardAnswerPresenter.present(context, diagnostics), "");
         StringBuilder answer = new StringBuilder(diagnostics.hasFacts()
                 ? "Here is what the scoped dashboard checks show:\n\n"
                 : "I could not verify the current dashboard state. No specific incident is confirmed.\n\n");

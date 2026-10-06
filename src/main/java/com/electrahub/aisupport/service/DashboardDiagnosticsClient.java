@@ -82,6 +82,7 @@ public class DashboardDiagnosticsClient {
         }
 
         Instant collectedAt = Instant.now();
+        var view = DashboardAnswerPresenter.view(context);
         List<String> facts = new ArrayList<>(), gaps = new ArrayList<>();
         Map<String, String> period = filters.query(true);
         Map<String, String> financial = new LinkedHashMap<>(period);
@@ -91,9 +92,12 @@ public class DashboardDiagnosticsClient {
         Map<String, CompletableFuture<HttpResponse<byte[]>>> reads = new LinkedHashMap<>();
         long deadline = System.nanoTime() + budget.toNanos();
         try {
-            reads.put("Period charging outcome", read("/session/api/v1/sessions/admin/charging-success-rate", period, bearer));
-            reads.put("Period billing overview", read("/billing/api/v1/admin/analytics/overview", financial, bearer));
-            reads.put("Current session snapshot", read("/session/api/v1/sessions/admin/search", current, bearer));
+            if (Set.of(DashboardAnswerPresenter.View.OVERVIEW, DashboardAnswerPresenter.View.ATTENTION, DashboardAnswerPresenter.View.SUCCESS_RATE).contains(view))
+                reads.put("Period charging outcome", read("/session/api/v1/sessions/admin/charging-success-rate", period, bearer));
+            if (Set.of(DashboardAnswerPresenter.View.OVERVIEW, DashboardAnswerPresenter.View.REVENUE, DashboardAnswerPresenter.View.BILLING).contains(view))
+                reads.put("Period billing overview", read("/billing/api/v1/admin/analytics/overview", financial, bearer));
+            if (Set.of(DashboardAnswerPresenter.View.OVERVIEW, DashboardAnswerPresenter.View.ATTENTION, DashboardAnswerPresenter.View.ACTIVE_SESSIONS).contains(view))
+                reads.put("Current session snapshot", read("/session/api/v1/sessions/admin/search", current, bearer));
             try { CompletableFuture.allOf(reads.values().toArray(CompletableFuture[]::new))
                     .get(Math.max(1L, deadline - System.nanoTime()), TimeUnit.NANOSECONDS); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
@@ -116,7 +120,7 @@ public class DashboardDiagnosticsClient {
                     List<String> sectionFacts = new ArrayList<>(), sectionGaps = new ArrayList<>();
                     switch (entry.getKey()) {
                         case "Period charging outcome" -> outcome(body, filters, sectionFacts);
-                        case "Period billing overview" -> billing(body, filters, sectionFacts, sectionGaps);
+                        case "Period billing overview" -> billing(body, filters, view, sectionFacts, sectionGaps);
                         case "Current session snapshot" -> current(body, filters, collectedAt, sectionFacts, sectionGaps);
                         default -> throw new IllegalStateException("Unknown dashboard section");
                     }
@@ -131,7 +135,8 @@ public class DashboardDiagnosticsClient {
         if (!facts.isEmpty()) facts.add(0, "Dashboard evidence retrieved at " + collectedAt + "; selected period="
                 + filters.from() + " to " + filters.to() + "; " + filters.scopeDescription()
                 + ".");
-        gaps.add("Charger health, payment settlement failures, and unread notifications could not be checked for these filters.");
+        if (view == DashboardAnswerPresenter.View.OVERVIEW || view == DashboardAnswerPresenter.View.ATTENTION)
+            gaps.add("Charger health, payment settlement failures, and unread notifications could not be checked for these filters.");
         return new BackendDiagnosticsClient.DiagnosticsSnapshot(List.copyOf(facts), List.copyOf(gaps));
     }
 
@@ -163,7 +168,7 @@ public class DashboardDiagnosticsClient {
                 + " invalid credit-card sessions. Counts use session creation time and cover all currencies. Completed/billed does not confirm payment capture.");
     }
 
-    private static void billing(JsonNode body, Filters filters, List<String> facts, List<String> gaps) {
+    private static void billing(JsonNode body, Filters filters, DashboardAnswerPresenter.View view, List<String> facts, List<String> gaps) {
         long sessions = count(body, "totalSessions");
         BigDecimal energy = number(body, "totalEnergyKwh");
         String updated = body.path("lastUpdatedAt").isNull() || body.path("lastUpdatedAt").isMissingNode()
@@ -173,6 +178,11 @@ public class DashboardDiagnosticsClient {
             if (!filters.currency().equals(requiredText(body, "currency"))) throw new IllegalStateException("Currency mismatch");
             money = ", " + number(body, "totalRevenue").toPlainString() + " " + filters.currency() + " recorded revenue";
         } else gaps.add("Monetary totals omitted because no single reporting currency is selected; mixed currencies are not added together.");
+        if (view == DashboardAnswerPresenter.View.REVENUE) {
+            if (filters.currency() != null) facts.add("Recorded revenue: " + number(body, "totalRevenue").toPlainString() + " "
+                    + filters.currency() + ". Latest recorded billing event: " + updated + ". Billing data can lag live sessions.");
+            return;
+        }
         facts.add("Billing for the selected period (" + (filters.currency() == null ? "all currencies" : filters.currency()) + "): " + sessions
                 + " sessions, " + energy.toPlainString() + " kWh" + money + ". Latest recorded event: " + updated
                 + ". Billing uses receipt/event dates and can lag live sessions; billing data does not confirm payment settlement.");

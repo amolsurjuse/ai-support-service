@@ -48,15 +48,32 @@ public final class SupportSessionAnswerPresenter {
         appendPeriod(answer, evidence);
 
         List<String> details = new ArrayList<>();
-        details.add(start(evidence));
-        details.add(payment(evidence, settlement));
-        details.add(metering(evidence));
-        details.add(subscription(evidence));
-        details.add(billing(evidence));
+        String intent = AdminPromptIntentRegistry.attribute(context, "promptIntent");
+        switch (intent) {
+            case "sessions.authorization" -> {
+                details.add(start(evidence));
+                details.add(payment(evidence, settlement));
+                details.add("The payment method is not established by this evidence summary; authorization status alone does not identify the method.");
+            }
+            case "sessions.meter-cost" -> {
+                details.add(metering(evidence)); details.add(subscription(evidence)); details.add(billing(evidence));
+            }
+            case "sessions.stuck" -> {
+                details.add(start(evidence)); details.add(metering(evidence)); details.add(payment(evidence, settlement));
+            }
+            default -> {
+                details.add(start(evidence)); details.add(payment(evidence, settlement)); details.add(metering(evidence));
+                details.add(subscription(evidence)); details.add(billing(evidence));
+            }
+        }
         answer.append("\n\n");
         details.forEach(detail -> answer.append("- ").append(detail).append('\n'));
 
         LinkedHashSet<String> checks = checks(evidence, status, compliance, settlement);
+        if ("sessions.authorization".equals(intent))
+            checks.removeIf(check -> !check.toLowerCase(Locale.ROOT).matches(".*(payment|authorization|settlement|capture|start|access|scope).*"));
+        if ("sessions.meter-cost".equals(intent))
+            checks.removeIf(check -> !check.toLowerCase(Locale.ROOT).matches(".*(meter|energy|bill|tax|invoice|subscription|access|scope).*"));
         if (!checks.isEmpty()) {
             answer.append("\nNext checks:\n");
             checks.stream().limit(5).forEach(check -> answer.append("- ").append(check).append('\n'));

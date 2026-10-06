@@ -107,6 +107,19 @@ class SupportSessionAnswerPresenterTest {
         assertThat(unknown).doesNotContain("denied access", "Check your access", "took too long");
     }
 
+    @Test void selectedQuestionsKeepRelevantVerifiedDetailsInsteadOfRepeatingWholeDiagnosis() {
+        var paymentContext = new ContextPayload("charging-sessions", "session", ID, null, null, null, ID, "support",
+                Map.of("responseMode", "SELECTED_RECORD", "promptIntent", "sessions.authorization"));
+        String payment = SupportSessionAnswerPresenter.present(snapshot(completedFacts(), List.of()), paymentContext);
+        assertThat(payment).contains("authorization 8 EUR", "payment method is not established")
+                .doesNotContain("0 stored meter sample rows", "Stored arithmetic", "Recorded discount:");
+        var billingContext = new ContextPayload("charging-sessions", "session", ID, null, null, null, ID, "support",
+                Map.of("responseMode", "SELECTED_RECORD", "promptIntent", "sessions.meter-cost"));
+        String billing = SupportSessionAnswerPresenter.present(snapshot(completedFacts(), List.of()), billingContext);
+        assertThat(billing).contains("0 stored meter sample rows", "Stored arithmetic").doesNotContain("recorded authorization 8 EUR", "remote start accepted");
+        assertThat(payment).isNotEqualTo(billing);
+    }
+
     @Test void arithmeticMismatchDoesNotDeclareBillingErrorAndDoesNotHideInvoiceFlag() {
         var facts = new ArrayList<>(completedFacts());
         facts.replaceAll(value -> value.startsWith("Persisted amount arithmetic check:") ? value.replace("matches recorded expression", "RECONCILIATION_REQUIRED") : value);

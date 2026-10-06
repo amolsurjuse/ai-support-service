@@ -1,0 +1,707 @@
+{
+  "users.review": {
+    "screen": "users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Enabled indicates whether the driver account is enabled in the directory; Disabled indicates it is not. The screen also shows profile/contact details and creation time. These fields do not establish a temporary login lock, current payment authorization, or permission to use a particular charger."
+  },
+  "users.locked": {
+    "screen": "users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The Users screen exposes Enabled and Disabled account states. Disabled is not the same as a verified temporary sign-in lock, and this screen does not establish when a lock began. Use the status filter to review disabled accounts; investigate authentication failures separately."
+  },
+  "users.start-blocked": {
+    "screen": "users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Check account enabled state, the selected charger's availability, payment authorization or wallet evidence, and subscription eligibility. A start request can fail at different stages, so use the actual session's authorization and OCPP timeline before assigning a cause. Account status alone does not explain every charging failure."
+  },
+  "users.data-access": {
+    "screen": "users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A driver's charging and payment records must be accessed under that authenticated user's permissions. Administrative access additionally depends on role and assigned data scope. Seeing an account in the directory does not prove access to every session, wallet, or payment record."
+  },
+  "users.status-precheck": {
+    "screen": "users",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before escalating a driver account issue, confirm the user ID, enabled state, reported symptom and time. Distinguish sign-in, charger/session, subscription and payment problems; collect the relevant error or session reference through authorized screens. Keep contact details masked where possible and state which evidence is still missing."
+  },
+  "admin-users.broad-access": {
+    "screen": "admin-users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review roles and hierarchy grants together. SYSTEM_ADMIN is broad administrative access; scoped administrators have enterprise, network or location grants with an access level. A role name or the number of grants alone does not prove which records an administrator can operate."
+  },
+  "admin-users.locked": {
+    "screen": "admin-users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The administrator directory shows enabled state and assigned roles. An inactive or disabled account is not evidence of a temporary authentication lock. Check the account detail and authentication evidence before describing it as locked or claiming a recent disable time."
+  },
+  "admin-users.scope": {
+    "screen": "admin-users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Hierarchy grants identify a scope type, scope ID and access level. Inspect enterprise, network and location assignments, including inherited descendants, when evaluating access. A scoped administrator with no grants has no assigned data access; SYSTEM_ADMIN follows a different broad-access path."
+  },
+  "admin-users.forbidden": {
+    "screen": "admin-users",
+    "responseMode": "KNOWLEDGE",
+    "answer": "For a Forbidden response, compare the exact request method and path with the current role policy, then verify the target's tenant and hierarchy against the administrator's grants. Read access and operational access are distinct. A valid login does not grant permission to every administrative endpoint."
+  },
+  "admin-users.role-precheck": {
+    "screen": "admin-users",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before changing administrator access:\n- Confirm the exact account and required duties.\n- Compare role changes with enterprise, network and location grants.\n- Check that read-only users cannot gain operational actions.\n- Verify both an allowed request and an out-of-scope denial after saving.\n- Keep the change reason for review."
+  },
+  "subscriptions.active": {
+    "screen": "subscriptions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Plans define benefits; allocations grant those benefits to a target. The plan list has an active filter, but an active plan alone does not make every allocation eligible. Allocation status, start/end dates, country, charging scope and remaining quota also matter."
+  },
+  "subscriptions.expiry": {
+    "screen": "subscriptions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Benefits can be unavailable when the plan is inactive, allocation dates/status do not qualify, country or charging scope does not match, or quota is exhausted. Also review discount type/value, quota unit and the target user/organization. validityDays belongs to the plan; the allocation's start/end window determines its actual active entitlement."
+  },
+  "subscriptions.rules": {
+    "screen": "subscriptions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The pre-tax subtotal is charging cost plus session and idle fees. KWH benefits normally use charging cost; ALL_FEES_PERCENTAGE can cover the whole pre-tax subtotal. The service then scales the calculated benefit by covered energy divided by total energy. Use the plan's actual discount type and quota unit rather than assuming every discount is energy-only."
+  },
+  "subscriptions.exhausted": {
+    "screen": "subscriptions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Remaining quota limits covered consumption, and partial coverage records covered and uncovered energy separately. The benefit is scaled to the covered share; exhausted allocations are excluded from eligibility. Quota exhaustion alone does not prove that charging stops, a payment fails, or the plan renews automatically."
+  },
+  "subscriptions.activation-precheck": {
+    "screen": "subscriptions",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before activating a plan, review its country/currency, pricing model, quota unit/default, discount type/value and validityDays. Confirm the intended users and charging scope through allocations. Check representative billing examples, including partial quota and ALL_FEES_PERCENTAGE. Do not assume setting allowStacking proves the pricing path combines multiple allocations."
+  },
+  "rbac.roles": {
+    "screen": "rbac-policy",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Assigned roles are expanded through the configured role hierarchy before gateway rules evaluate them. A rule then checks method/path, effect, anonymous access and required roles; domain services separately enforce data scope and sensitive-operation roles. Role inheritance does not remove tenant boundaries or grant session investigation to every administrator."
+  },
+  "rbac.scope": {
+    "screen": "rbac-policy",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The charger hierarchy is enterprise, network, location, charger, EVSE and connector. Authenticated tenant identity and assigned hierarchy grants constrain visible records and operational actions. Requesting a different ID or hosting a service internally does not remove those authorization requirements."
+  },
+  "rbac.policy-permissions": {
+    "screen": "rbac-policy",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Rules are checked against the request method and path. An applicable DENY returns a denial even if an earlier ALLOW matched; matching ALLOW rules can grant access when no applicable DENY exists. If rules match but none grants access, access is denied; if none matches, the configured default applies. Domain authorization still checks the target resource."
+  },
+  "rbac.forbidden": {
+    "screen": "rbac-policy",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Investigate a denial using the exact method, route and role set, then the requested resource's tenant and hierarchy. Verify the saved policy version and the user's current grants. Avoid broad wildcard grants as a diagnostic shortcut; they can conceal the actual missing permission or scope."
+  },
+  "rbac.publish-precheck": {
+    "screen": "rbac-policy",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before publishing policy changes:\n- Review method/path coverage, DENY rules and anonymous access.\n- Test intended read and write requests separately.\n- Test anonymous, wrong-role and out-of-scope requests remain denied.\n- Preserve required administration access and a reviewed rollback version.\n- Verify the saved policy is the one being evaluated."
+  },
+  "enterprises.attention": {
+    "screen": "charger-enterprise",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the enterprise's identity and status, its networks and their locations, then operational evidence from chargers and sessions. An enterprise list contains administrative records; it is not by itself a health or revenue summary. State the review period and which descendants were actually checked."
+  },
+  "enterprises.summary": {
+    "screen": "charger-enterprise",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Inventory follows enterprise → network → location → charger. To summarize an enterprise, follow those relationships and account for pagination at each level. Do not interpret the first page of networks or locations as the full enterprise, or infer live availability from inventory counts."
+  },
+  "enterprises.contents": {
+    "screen": "charger-enterprise",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The enterprise screen identifies a record by enterprise ID and name, with country, party ID, timezone and enabled state. Use the stable ID to trace its networks and locations; names alone do not establish ownership. Enabled state is administrative configuration, not proof all descendant chargers are online."
+  },
+  "enterprises.scope-anomaly": {
+    "screen": "charger-enterprise",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare each record's stored parent IDs with the expected enterprise → network → location chain. A record absent from a scoped list may be outside the viewer's permission or a later page; absence alone is not proof of incorrect assignment. Confirm the relationship using authorized detail evidence."
+  },
+  "enterprises.disable-precheck": {
+    "screen": "charger-enterprise",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before disabling an enterprise, confirm the target and authorized scope, review descendant networks/locations/chargers, and check active sessions and payment dependencies separately. Record the intended effect and recovery plan. Do not assume an administrative status change automatically stops charging or settles outstanding payments."
+  },
+  "networks.attention": {
+    "screen": "charger-network",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the network's parent enterprise and location assignments, then check charger/session evidence for those locations. Network configuration, payment routes and live charger health are separate concerns. A network record alone does not establish that all descendants are available."
+  },
+  "networks.summary": {
+    "screen": "charger-network",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use the network ID to list its locations, then inspect chargers under each location. Include all pages before presenting an inventory total. Availability requires current operational evidence and its timestamp; a configured charger count is not an online-charger count."
+  },
+  "networks.locations": {
+    "screen": "charger-network",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Locations store their parent network ID. Filter the location list by that ID and verify the returned relationship. The signed-in user's hierarchy grants can restrict what is visible, so a limited result must not be described as every location in the network without completeness evidence."
+  },
+  "networks.impact": {
+    "screen": "charger-network",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Trace the network to its locations and chargers, then inspect current sessions for that verified scope. Configuration changes can affect dependent resources, but exact impact depends on the changed setting. Inventory membership alone does not show which sessions are actively charging or awaiting payment."
+  },
+  "networks.disable-precheck": {
+    "screen": "charger-network",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Confirm the network and parent enterprise, review locations and current charging sessions, and inspect merchant/payment-route dependencies. Check the intended change and available recovery steps. Do not assume disabling new activity cancels existing payment authorizations or settles sessions."
+  },
+  "locations.missing-config": {
+    "screen": "charger-location",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the location's parent network, identity and country details, charger assignments, applicable pricing and effective tax context. Missing values and unresolved mappings should be listed separately from operational faults. A pricing or tax policy existing somewhere does not prove it applies to this location."
+  },
+  "locations.availability": {
+    "screen": "charger-location",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Location availability requires current evidence for its chargers, EVSEs and connectors. Separate configured inventory from online/offline or faulted status, and include the observation time. An empty or failed lookup is not evidence that every connector is available."
+  },
+  "locations.policies": {
+    "screen": "charger-location",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Verify the parent network and enterprise, then resolve pricing with the actual location/connector context and tax with country, currency, date and hierarchy. Tax merges enterprise → network → location unless a policy uses REPLACE. Display IDs may require mapping to the pricing service's location UUID."
+  },
+  "locations.sessions": {
+    "screen": "charger-location",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use the verified location ID and the session screen's active-state filter. Active-state records can include pending, preparing, suspended or finishing sessions as well as charging sessions. Inspect status and recent meter/event times before calling a session stuck."
+  },
+  "locations.disable-precheck": {
+    "screen": "charger-location",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check the location's parent scope, chargers/connectors, active sessions, reservations where available, and applicable pricing/payment dependencies. Confirm the intended operational effect and recovery plan. A location status update is not evidence that active sessions were stopped or billed."
+  },
+  "charger-groups.review": {
+    "screen": "charger-groups",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review group ID/name, enterprise and network fields, load profile, configured charger count and enabled flag. These are stored reference values. Verify actual charger assignments and how the load profile is applied before treating the record as operational evidence."
+  },
+  "charger-groups.availability": {
+    "screen": "charger-groups",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A group's configured metadata does not establish member availability. First verify which chargers belong to the group, then inspect current status for those chargers/connectors and the observation time. Do not turn a missing membership lookup into a zero-fault result."
+  },
+  "charger-groups.members": {
+    "screen": "charger-groups",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Configured charger count is a stored field on the group reference record. It is not a live count of online chargers or proof of a complete membership list. Reconcile the value against verified charger assignments before using it for capacity or availability reporting."
+  },
+  "charger-groups.settings": {
+    "screen": "charger-groups",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Enterprise and network fields describe the group's configured ownership context, while load profile records its configured operating profile. They are reference metadata; this page alone does not prove runtime enforcement or pricing inheritance. Verify actual resource links and the service that applies the profile."
+  },
+  "charger-groups.membership-precheck": {
+    "screen": "charger-groups",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before changing membership, verify the group and charger IDs, their tenant/hierarchy, and every setting that explicitly uses the group. Review current sessions and intended entitlement impact. Save a clear before/after membership record; do not assume unrelated pricing or access rules update automatically."
+  },
+  "chargers.offline": {
+    "screen": "chargers",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the latest connection/heartbeat and OCPP status with timestamps, then connector faults and active sessions. Offline describes communication availability; Faulted describes reported operational state. A configured charger in inventory is not proof that it is online."
+  },
+  "chargers.offline-reason": {
+    "screen": "chargers",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Start with the last successful heartbeat or connection event and subsequent disconnect/error evidence. Then compare the charger's identity, endpoint and recent configuration changes. An old heartbeat supports a communication concern, but does not by itself identify a network, power or certificate root cause."
+  },
+  "chargers.ocpp-state": {
+    "screen": "chargers",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A heartbeat indicates communication activity; StatusNotification describes a connector's reported condition. Keep charger connection status separate from connector availability, and compare event timestamps. Missing recent evidence should be described as unknown rather than inferred Available."
+  },
+  "chargers.activity": {
+    "screen": "chargers",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Inspect the charger's EVSEs/connectors and session records using the verified charger ID. Separate pending/preparing, actively charging, suspended and finishing states. Match connector and session identifiers before assuming a current session belongs to a particular physical port."
+  },
+  "chargers.status-precheck": {
+    "screen": "chargers",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Confirm the exact charger and authorized location, review current sessions/connectors and the latest OCPP evidence, and distinguish a configuration update from a remote operational command. Assess customer impact and recovery steps before sending an operation; verify its actual result afterward."
+  },
+  "evses.unavailable": {
+    "screen": "evses",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the EVSE's charger relationship and each connector's latest operational status. EVSE configuration alone does not establish current availability or fault cause. Keep missing/stale evidence separate from an explicit Unavailable or Faulted report."
+  },
+  "evses.owner": {
+    "screen": "evses",
+    "responseMode": "KNOWLEDGE",
+    "answer": "An EVSE belongs to a charger, which belongs to a location under a network and enterprise. Verify those stored IDs rather than relying on display names. Authorized access to an EVSE follows the owning charger's hierarchy scope."
+  },
+  "evses.capabilities": {
+    "screen": "evses",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the EVSE's actual connectors and their standard, format, electrical limits and associated model/reference data. Declared capability is configuration evidence, not a measured charging output or protocol-conformance result. Use connector-specific details when explaining power limits."
+  },
+  "evses.ocpp-state": {
+    "screen": "evses",
+    "responseMode": "KNOWLEDGE",
+    "answer": "OCPP status evidence is typically tied to a charge point and connector. Match that identity to the EVSE's connectors and inspect the latest timestamp and reported state. Do not assign a single fresh state to the whole EVSE from an unrelated or stale connector event."
+  },
+  "evses.edit-precheck": {
+    "screen": "evses",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Verify EVSE ID, parent charger/location and connector mappings. Check active sessions and whether the intended change affects identifiers or advertised power/capability. Preserve existing relationships and verify the saved configuration; a metadata edit does not prove the charger accepted a runtime change."
+  },
+  "connectors.unavailable": {
+    "screen": "connectors",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Connector availability must come from current operational evidence, such as an explicit status and its timestamp. Configuration, occupancy and faults are related but distinct. An empty lookup or a completed historical session is not sufficient proof that the connector is available now."
+  },
+  "connectors.unavailable-reason": {
+    "screen": "connectors",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare the connector's latest status/error with its session or reservation relationship and the charger's connection history. Match charge-point and connector identifiers. State whether the evidence shows a fault, an explicit unavailability setting, or merely missing/stale telemetry."
+  },
+  "connectors.usage": {
+    "screen": "connectors",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Match the connector ID to current session and reservation evidence where available. Check the lifecycle state before describing a connector as in use: preparing, suspended and finishing can differ from delivering energy. A stale association needs reconciliation rather than an assumed active customer."
+  },
+  "connectors.available-event": {
+    "screen": "connectors",
+    "responseMode": "KNOWLEDGE",
+    "answer": "An explicit Available status is evidence that the charger reports the connector available at that time. Compare it with any remaining session/occupancy record and reconcile discrepancies. It does not by itself prove a receipt was finalized, payment settled, or every earlier fault was resolved."
+  },
+  "connectors.config-precheck": {
+    "screen": "connectors",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check connector identity, EVSE/charger relationship, standard/format and electrical limits against the actual hardware. Review current sessions and any operational command needed to apply the change. Verify configuration and subsequent charger evidence separately; saving metadata is not an OCPP acknowledgment."
+  },
+  "allocations.summary": {
+    "screen": "allocations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Allocation type identifies the beneficiary: user, organization or organization group. Charging scope limits where it applies; source records how the entitlement originated. Eligibility additionally needs an active plan/allocation, a valid date window, matching country/context and available quota. Source alone does not override those checks."
+  },
+  "allocations.exhaustion-risk": {
+    "screen": "allocations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Remaining quota is the effective limit minus consumed value, floored at zero. A missing limit represents no finite limit recorded. Compare consumption in the correct quota unit; define any 'near exhaustion' threshold explicitly instead of treating a chosen percentage as a built-in rule."
+  },
+  "allocations.exhausted-reason": {
+    "screen": "allocations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare the allocation's override/default limit with recorded consumption, then inspect its utilization records. Check the quota unit and decimal values rather than mixing legacy session counts with KWH. An exhausted flag describes quota, not a verified payment failure or automatic session stop."
+  },
+  "allocations.sessions": {
+    "screen": "allocations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Filter utilization by allocation ID, then compare exact session references and recorded quota consumption. The session-reference search can match substrings, so verify the full reference before attributing consumption. Account for pagination and date filters before claiming all consuming sessions were included."
+  },
+  "allocations.quota-precheck": {
+    "screen": "allocations",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before granting quota or changing status, confirm the recipient, plan, quota unit/value, country, charging scope, source and validity window. Compare existing allocations and consumed quota to avoid an unintended duplicate entitlement. Review current sessions and audit history, and verify the saved allocation after an authorized change."
+  },
+  "utilizations.summary": {
+    "screen": "utilizations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use the user filter to narrow utilization records, then search the session reference and compare allocation/plan IDs. The backend session-reference search is a substring match, so verify the full reference. Include the relevant date range and all required pages before adding consumption or benefits."
+  },
+  "utilizations.anomalies": {
+    "screen": "utilizations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Look for repeated exact session references, unexpected quota units, consumption inconsistent with remaining quota, or benefit/net amounts that disagree with the session's stored result. These are investigation signals, not proof of an incorrect charge. Compare allocation, plan and audit evidence before deciding."
+  },
+  "utilizations.calculation": {
+    "screen": "utilizations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Gross amount includes charging cost, session/idle fees and supplied tax. Net amount equals gross amount minus the recorded subscription benefit. The benefit is the plan's eligible discount scaled by covered energy / total energy, with quota limiting coverage. Compare currency, covered/uncovered energy and persisted session billing before concluding the result is correct."
+  },
+  "utilizations.discount": {
+    "screen": "utilizations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare the plan's discount type, eligible charge components and recorded coverage ratio with the utilization and final session result. ALL_FEES_PERCENTAGE can include session and idle fees; ordinary KWH benefits are energy-scoped. Supplied tax, caps and persisted billing adjustments must be reconciled separately."
+  },
+  "utilizations.duplicates": {
+    "screen": "utilizations",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare utilization IDs, exact session reference, allocation ID, timestamps, quota consumed and resulting benefit. Check subscription audit entries and the session's stored subscription result. Do not create another utilization or invoke preview as a diagnostic shortcut; preview may resolve or grant a promotion, and duplicate handling needs explicit evidence."
+  },
+  "refunds.pending": {
+    "screen": "refunds",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Refund states include PROCESSING, PENDING_RECONCILIATION, SUCCEEDED and FAILED. Processing, pending-reconciliation and successful amounts reduce the remaining refundable balance. Filter the refund list by the actual status; a pending provider outcome is not the same as a confirmed failure."
+  },
+  "refunds.failure": {
+    "screen": "refunds",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the refund's status/error code, original payment method and provider operation reference. Eligibility requires a completed WALLET or CARD payment; CARD also needs the original provider authorization reference. Use recorded provider evidence before attributing the failure to a particular cause."
+  },
+  "refunds.references": {
+    "screen": "refunds",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Trace the refund ID to its original transaction and session reference, then compare amount, currency and payment method with the session's receipt/payment evidence. A charging-session completion alone does not prove a settled refundable payment. Receipt details may require a separate authorized session lookup."
+  },
+  "refunds.duplicate-check": {
+    "screen": "refunds",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare the existing refund ID, original session/payment, amount and Idempotency-Key before submitting another request. Reusing a key returns the existing matching refund or conflicts for a different request. Include processing and pending-reconciliation amounts when calculating the refundable remainder."
+  },
+  "refunds.retry-precheck": {
+    "screen": "refunds",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before refreshing refund status, confirm the exact refund ID and existing gateway operation reference. Refresh is relevant to PENDING_RECONCILIATION; it queries that provider operation and can update the stored refund result. It does not issue a new refund. Review the returned status before considering any separate authorized action."
+  },
+  "notifications.failed": {
+    "screen": "notifications",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use the Unread inbox filter and search the message details to find operational messages requiring review. Open a message to inspect its subject/body, template, reference and received time. Unread describes inbox read state; it is not a failed-delivery status."
+  },
+  "notifications.generated": {
+    "screen": "notifications",
+    "responseMode": "KNOWLEDGE",
+    "answer": "For a project brief, review the brief text and received time, sender/company, site type, source page and event reference. Check the displayed masked email/contact details and marketing-consent field for the intended follow-up. Missing fields are gaps to resolve, not facts Sparky can infer from the template."
+  },
+  "notifications.deduplication": {
+    "screen": "notifications",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Read or Unread describes whether the inbox item has been marked read. Delivery states such as DISPATCHED, DELIVERED or FAILED describe a separate channel/provider stage. Marking an inbox message read does not send a reply or confirm that an email, SMS or push notification reached its recipient."
+  },
+  "notifications.attempts": {
+    "screen": "notifications",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Source identifies the originating page when supplied; Reference is the event identifier; Template identifies the message type. Compare these with received time and body to trace a project brief or contact request. These fields help correlation but are not a list of provider delivery attempts."
+  },
+  "notifications.permanent-failure": {
+    "screen": "notifications",
+    "responseMode": "KNOWLEDGE",
+    "answer": "After reviewing an operational message, record the required follow-up through your team's normal process and mark the inbox item read when appropriate. Use its reference/template to retain context. Reading or marking it read does not contact the sender, resolve the request, or retry a failed external delivery."
+  },
+  "audit.risky-actions": {
+    "screen": "audit-logs",
+    "responseMode": "KNOWLEDGE",
+    "answer": "This page shows subscription audit history: plan, allocation and utilization actions. Filter by action and time, then inspect the record's identifiers and details. It is not a global security log or a complete list of failed administrator actions."
+  },
+  "audit.resource-history": {
+    "screen": "audit-logs",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use subscription audit entries to trace a plan, allocation or utilization change by its stored IDs and timestamp. Compare related entries with the current record. A missing entry in the loaded result can reflect filters or result limits, so it does not prove no change occurred."
+  },
+  "audit.actor-history": {
+    "screen": "audit-logs",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Inspect the actor information recorded on subscription audit entries and the associated action/resource IDs. Keep automated or service-originated activity distinct when the data identifies it. This page does not establish the administrator's complete history across every application service."
+  },
+  "audit.correlation": {
+    "screen": "audit-logs",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use the action, entity-type and date controls to narrow subscription audit history, then search the stored details/identifiers. Compare exact plan or allocation IDs and timestamps in the expanded record. Filters on loaded records do not prove a complete application-wide history or distributed trace."
+  },
+  "audit.denied-access": {
+    "screen": "audit-logs",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare the allocation/plan IDs, actor, timestamp, action and recorded before/after details with the current quota and consumption. Check the quota unit and distinguish a grant or status change from recorded utilization. A matching audit entry explains a recorded change; it does not by itself prove all later billing outcomes are correct."
+  },
+  "pricing.active": {
+    "screen": "pricing",
+    "responseMode": "KNOWLEDGE",
+    "answer": "An active pricing plan must also be applicable to the location/connector context and effective time. Review active state and valid-from/to dates, then resolve the applicable plan. The existence of an active tariff does not prove it applies to every connector."
+  },
+  "pricing.current": {
+    "screen": "pricing",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Energy components round consumed Wh up to the configured positive energy step, convert billed Wh to kWh and multiply by the component rate. Time components use duration in minutes and their rate; component minimum/maximum amounts may apply. Inspect units, dimensions and the full breakdown rather than treating every component as a per-kWh charge."
+  },
+  "pricing.time-of-use": {
+    "screen": "pricing",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Time-of-use pricing uses the plan's IANA timezone and ISO weekdays. Matching scheduled components apply first, with one optional unscheduled fallback. Overnight windows belong to their starting weekday. There are no universal peak hours: read the plan's actual periods and rates."
+  },
+  "pricing.assignment-gaps": {
+    "screen": "pricing",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review plan applicability and effective dates separately from component schedules. TIME_OF_USE rejects overlapping scheduled components and requires full-week coverage unless a fallback exists. The calculation allocates total energy proportionally across elapsed tariff periods; it does not establish measured energy in each band."
+  },
+  "pricing.activation-precheck": {
+    "screen": "pricing",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check currency, location/connector applicability, effective dates, charge dimensions, units/steps/caps and timezone. For TIME_OF_USE, verify ISO weekdays, paired start/end times, no overlaps and full-week coverage or one fallback. Test representative boundary and overnight cases before activating the intended plan."
+  },
+  "payment-gateways.enabled": {
+    "screen": "payment-gateways",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A payment setup has three layers: gateway connection, merchant account and payment route. Merchant accounts connect the provider setup to enterprise/network and currencies; routes select country, channel and payment method. Review all three layers before calling a network payment-enabled."
+  },
+  "payment-gateways.incomplete": {
+    "screen": "payment-gateways",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Check connection validation/status and configured credential indicators, merchant-account status/currencies, and route method/channel/country/effective period. Safe configuration responses expose whether credentials are configured, not their values. A provider name alone does not prove the setup is usable."
+  },
+  "payment-gateways.capabilities": {
+    "screen": "payment-gateways",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Use the connection's validated capabilities, the merchant's supported presentment/settlement currencies, and the route's payment method/channel. Support is configuration-specific; do not infer it from the provider brand. Raw secrets and payment credentials are not needed to explain these capabilities."
+  },
+  "payment-gateways.authorization": {
+    "screen": "payment-gateways",
+    "responseMode": "KNOWLEDGE",
+    "answer": "New authorization requires an enabled current route, active compatible configuration and required capabilities for its country, currencies, channel and method. Existing captures, voids, refunds and status checks may remain possible after a route is disabled. Disabled new authorizations do not imply existing holds were canceled."
+  },
+  "payment-gateways.activation-precheck": {
+    "screen": "payment-gateways",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Validate the connection and configured credentials, confirm provider/environment and active merchant account, then check route currency/method/channel/country and effective dates. MOCK is prohibited in production. Verify required capabilities and a controlled authorization/settlement flow; reading configuration alone is not a successful payment test."
+  },
+  "tax.missing": {
+    "screen": "tax-configuration",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Effective tax configuration depends on country, currency, invoice date and the enterprise/network/location chain. A policy visible in the list may not cover the intended location or date. Missing resolution is a configuration gap, not proof that the correct tax is zero."
+  },
+  "tax.current": {
+    "screen": "tax-configuration",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Tax resolution uses country, currency, invoice date and hierarchy IDs to find effective ACTIVE or SCHEDULED policies. Within each scope it chooses the latest effective-from, then configuration version and ID. Country plugins validate supported currencies, required country fields and tax components; policy name alone does not establish applicability."
+  },
+  "tax.inheritance": {
+    "screen": "tax-configuration",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Tax policies apply in enterprise → network → location order. INHERIT_AND_EXTEND merges configuration and components; REPLACE clears inherited values before applying the lower-level policy. A matching component key replaces that component, and the most specific selected policy supplies pricing mode."
+  },
+  "tax.overlap": {
+    "screen": "tax-configuration",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare country/currency, scope, effective dates and status. Where multiple policies match one scope, resolution prefers latest effective-from, then configuration version and ID. Do not assume every overlap is rejected or every SCHEDULED policy is inactive; its date window matters."
+  },
+  "tax.activation-precheck": {
+    "screen": "tax-configuration",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check scope and hierarchy IDs, country/currency, effective dates, inheritance mode and tax-inclusive/exclusive pricing mode. Use the country plugin's required fields and supported component types; review component applicability and duplicates. Compare authorized calculation examples, including inherited and replacement policies, before activation."
+  },
+  "operators.attention": {
+    "screen": "network-operator",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review operator ID/name, contact person/phone/address, country/region, currency, legal entity, subdomain and tax-registration fields. Then check commercial-limit values and feature flags for the intended setup. These are configuration records, so verify the consuming service before claiming a field controls live behavior."
+  },
+  "operators.summary": {
+    "screen": "network-operator",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Country/region, currency, legal-entity and tax-registration values describe the operator's configured commercial context. Supervisor, team-lead and agent payment limits are stored reference values. Their presence is not proof that a payment or approval workflow enforces them; verify that workflow separately."
+  },
+  "operators.resources": {
+    "screen": "network-operator",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Operator flags include insight access, firmware management, demand response, alerts, idle-fee calculation, subscriptions and reservations. They record configured feature choices. A checked flag does not by itself grant administrator permission or prove a downstream service has enabled and applied that feature."
+  },
+  "operators.dependencies": {
+    "screen": "network-operator",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review explicitly linked enterprise/network configuration and any merchant/payment setup that uses those IDs. The operator reference screen does not validate all downstream dependencies automatically. Describe unverified relationships as checks to perform, rather than claiming they are missing."
+  },
+  "operators.status-precheck": {
+    "screen": "network-operator",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Confirm the operator record and its actual linked resources, review how its data fields are consumed, and check current operational/payment dependencies. Record the intended change and rollback. Do not assume changing reference metadata automatically disables networks or stops sessions."
+  },
+  "makes.in-use": {
+    "screen": "charge-station-make",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Manufacturer reference data gives charger models a consistent make identity and descriptive metadata. The make record itself is configuration, not a deployed charger. Verify explicit model/charger references before describing a manufacturer as currently in use."
+  },
+  "makes.incomplete": {
+    "screen": "charge-station-make",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review make ID, manufacturer/display name, short name, headquarters and description. Keep the stable ID consistent with model references and use descriptive fields for identification. Manufacturer metadata alone does not establish supported protocols or live device capability."
+  },
+  "makes.dependencies": {
+    "screen": "charge-station-make",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Trace explicit model references to the make ID, then chargers using those models. Verify identifiers and account for pagination before reporting dependency counts. Matching names alone are insufficient evidence that two records are linked."
+  },
+  "makes.protocols": {
+    "screen": "charge-station-make",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Protocol capability should be checked against the actual model/charger configuration and verified device behavior. A manufacturer name alone is not evidence that all its models support a protocol. Separate declared capability from conformance or a successful live connection."
+  },
+  "makes.edit-precheck": {
+    "screen": "charge-station-make",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Confirm the make ID and dependent models/chargers before changing reference data. Preserve identifiers used by existing records and review the meaning of edited metadata. Do not assume removing a make is available or safely cascades to dependent records."
+  },
+  "ports.in-use": {
+    "screen": "port-level",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A port level defines reusable connector/electrical reference information: level ID/name, connector name, voltage, current and rated power. It describes configured capability rather than a specific live connector or its present output."
+  },
+  "ports.incomplete": {
+    "screen": "port-level",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review the level ID/name, connector name, voltage in V, current in A and rated power in kW. Check values against the intended hardware/model and preserve units. This reference form does not itself verify device behavior or connector availability."
+  },
+  "ports.capabilities": {
+    "screen": "port-level",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Voltage (V), current (A) and rated power (kW) describe the configured electrical rating of the port definition. They are different quantities and should not be mixed with delivered energy (kWh). Compare actual hardware and supply characteristics; the rated value is not a live power measurement."
+  },
+  "ports.dependencies": {
+    "screen": "port-level",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Inspect model definitions and deployed connector configurations that explicitly reference the port definition. Verify IDs and the affected fields before attributing a dependency. The reference list alone does not supply a complete dependency graph."
+  },
+  "ports.edit-precheck": {
+    "screen": "port-level",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check dependent models and connectors, hardware compatibility, units and electrical limits before changing a port definition. Preserve stable IDs and review whether existing deployments inherit any edited field. Verify the saved metadata separately from live charger behavior."
+  },
+  "models.deployed": {
+    "screen": "charge-station-model",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A model reference record is not proof of deployment. Find chargers that explicitly reference its ID, then review their locations and configuration. Include all relevant pages before giving a deployed-model count."
+  },
+  "models.incomplete": {
+    "screen": "charge-station-model",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review model ID/name, manufacturer, configured port count and OCPP protocol. Verify that manufacturer references and counts match the intended hardware. These declared fields describe the model; they do not prove a deployed charger implements every protocol capability."
+  },
+  "models.capabilities": {
+    "screen": "charge-station-model",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Manufacturer identifies the make, port count describes the configured number of ports, and OCPP protocol declares the expected communication version. Compare those fields with the actual deployed charger and connectors. Model metadata is not a live inventory count or a protocol-conformance test."
+  },
+  "models.dependencies": {
+    "screen": "charge-station-model",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Trace charger records that reference the model ID and inspect any linked port/make definitions. Use actual relationships and scope, not display-name similarity. The model reference screen alone does not prove all dependent chargers have been found."
+  },
+  "models.edit-precheck": {
+    "screen": "charge-station-model",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check make/port references, units, declared limits and protocols against the hardware, then identify deployed chargers using the model. Review how the edited metadata affects existing configurations. Preserve IDs and verify representative deployments after a controlled change."
+  },
+  "controllers.unhealthy": {
+    "screen": "site-controller",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Availability on this site-controller form is a configured ONLINE/OFFLINE value. Current load and associated-station values are also stored reference fields, not proof of a fresh health probe. Confirm connectivity with timestamped operational evidence before reporting a live outage."
+  },
+  "controllers.heartbeat": {
+    "screen": "site-controller",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A controller heartbeat needs an actual timestamped telemetry record. Created/updated timestamps on the reference record are configuration timestamps, not heartbeat evidence. If no heartbeat source is available, report that the controller's current connectivity is unverified."
+  },
+  "controllers.assignments": {
+    "screen": "site-controller",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Location/operator/enterprise fields describe configured placement, and associated stations is a stored count. They do not provide a verified list of charger IDs or a live connection count. Confirm actual assignments on owning resources before assessing impact."
+  },
+  "controllers.impact": {
+    "screen": "site-controller",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Inverter/peak power and current load use kW; battery capacity uses kWh. Meter interval uses minutes, power-data interval uses seconds, and skip count is a reading configuration value. Load control/ramping describe configured behavior. This reference record does not prove these settings are being enforced by a live controller."
+  },
+  "controllers.disable-precheck": {
+    "screen": "site-controller",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Confirm controller identity, location/charger assignments and its operational role. Review current sessions and the available fallback/recovery procedure before disabling or reassigning it. A reference-data change is not evidence that a remote device accepted or completed the operation."
+  },
+  "contracts.attention": {
+    "screen": "mobility-contracts",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Review contract lifecycle status and valid-from/to dates along with its EMAID. Contract validity is distinct from certificate-chain, installation and charger authorization readiness. The contract list alone does not provide a complete Plug and Charge health diagnosis."
+  },
+  "contracts.expiry": {
+    "screen": "mobility-contracts",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare valid-from/to with the relevant time and inspect lifecycle status. State the threshold used for 'near expiry'; it is a review choice unless explicitly configured. An unexpired contract is not proof that its certificate is installed or accepted by the charger."
+  },
+  "contracts.certificate": {
+    "screen": "mobility-contracts",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The mobility-contract list links contract ID and user ID to eMAID, credential type and the OCPI token/contract representation. Credential type is not a certificate health status. Provider and certificate-chain validation are not exposed in this list and need separate authorized evidence."
+  },
+  "contracts.rejection": {
+    "screen": "mobility-contracts",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Compare the contract's EMAID, status and validity with the actual authorization rejection and certificate/installation evidence. The contract list does not expose a rejection trace, so it cannot by itself identify the cause. Preserve the exact event time and identifiers for the investigation."
+  },
+  "contracts.lifecycle-precheck": {
+    "screen": "mobility-contracts",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before escalating a mobility-contract issue, collect the exact contract ID/eMAID, status, validity window, affected driver/session reference and rejection time. Distinguish contract eligibility from certificate installation or charger authorization. This read-only screen cannot suspend or renew a contract, and its list alone does not identify a rejection cause."
+  },
+  "root-ca.attention": {
+    "screen": "root-ca-ceremonies",
+    "responseMode": "KNOWLEDGE",
+    "answer": "The Root CA ceremony creates the tenant's mobility-operator trust root. An MO SubCA ceremony creates the subordinate CA hierarchy beneath an existing generated root, with matching country/organization and distinct subordinate subjects. They have separate approval requirements and certificate artifacts."
+  },
+  "root-ca.status": {
+    "screen": "root-ca-ceremonies",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A ceremony record exposes status, requester, approval count, generation/validity times and certificate metadata. Use those fields together; do not infer successful generation from an approval count alone. A downloadable certificate is only returned for a generated ceremony with certificate content."
+  },
+  "root-ca.approvals": {
+    "screen": "root-ca-ceremonies",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Root CA generation requires three independent approvals; MO SubCA generation requires two. The requester cannot approve their own ceremony in either workflow. Review approval count and status together: an approval count is not proof generation succeeded, and the list does not identify every remaining participant by name."
+  },
+  "root-ca.artifacts": {
+    "screen": "root-ca-ceremonies",
+    "responseMode": "KNOWLEDGE",
+    "answer": "PCID enrollment verifies an OEM provisioning certificate for a driver with an active default mobility contract. Activation creates the Plug and Charge eMAID. Contract-certificate issuance then requires an active PCID, a CSR and a generated MO subordinate CA hierarchy. Issuing or downloading the chain is separate from proving it was installed and accepted by a charger."
+  },
+  "root-ca.advance-precheck": {
+    "screen": "root-ca-ceremonies",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Check whether this is a Root CA or MO SubCA ceremony, its identity fields, requester separation, approval count, status and prior errors. SubCA requests need an existing generated root with matching country/organization. Confirm intended validity and custody evidence before an authorized approval; diagnosis does not approve or generate certificates."
+  },
+  "banners.audience": {
+    "screen": "banner-campaigns",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Banner eligibility matches screen, platform, locale, included/excluded country and optional registration window. A wildcard can match all configured values; locale matching also supports its language part. Country exclusion takes precedence, and a registration window needs an available registration timestamp."
+  },
+  "banners.schedule": {
+    "screen": "banner-campaigns",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A campaign must be active, have reached startsAt, and not have reached endsAt when an end is set. Eligible results are ordered by priority and updated time. The form converts local date/time input to an ISO timestamp, so verify the intended timezone before saving."
+  },
+  "banners.delivery": {
+    "screen": "banner-campaigns",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A banner can be absent because it is inactive, outside its time window or does not match screen/platform/locale/country/registration filters. Eligibility is separate from whether a client displayed or dismissed it. Do not diagnose delivery from the campaign's active flag alone."
+  },
+  "banners.metrics": {
+    "screen": "banner-campaigns",
+    "responseMode": "KNOWLEDGE",
+    "answer": "This campaign screen lists configuration and scheduling; it does not expose impression or click analytics. Do not treat eligible campaigns as impressions or saved campaigns as clicks. Interpreting engagement requires actual client event instrumentation and a defined metric source."
+  },
+  "banners.publish-precheck": {
+    "screen": "banner-campaigns",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Review campaign key, title/message, target screens/platforms/countries, start/end timestamps and active state. Check broader locale/registration filters where configured and verify the intended client audience. Confirm content and schedule before publishing; an eligible response is not proof the user has seen it."
+  },
+  "session-help.select": {
+    "screen": "charging-sessions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "On Charging sessions, find the correct row and choose Diagnose with Sparky if your role permits session analysis. Confirm the selected session shown in the panel before requesting an investigation. Opening a receipt or detail view alone does not select that session for Sparky."
+  },
+  "session-help.lifecycle": {
+    "screen": "charging-sessions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A session can move through pending/preparing, active charging, suspended and finishing states before completion and billing. Exact transitions depend on authorization and charger events. Charging completion, receipt calculation and payment settlement are separate milestones; compare their timestamps before calling a session stuck."
+  },
+  "session-help.meter-values": {
+    "screen": "charging-sessions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "Meter values are timestamped measurements reported by the charger, such as cumulative energy, power, current, voltage or state of charge. Check measurand, unit, phase and timestamp before comparing samples. A cumulative energy reading is not the energy delivered in that single interval, and a missing sample is not proof that no charging occurred."
+  },
+  "session-help.receipt": {
+    "screen": "charging-sessions",
+    "responseMode": "KNOWLEDGE",
+    "answer": "A charging receipt can combine energy/time charges, session or idle fees, subscription benefit and tax, with applicable caps or adjustments. Compare persisted amounts in one currency and the tariff/subscription evidence. A calculated receipt is not by itself proof the payment provider captured or settled the amount."
+  },
+  "session-help.precheck": {
+    "screen": "charging-sessions",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before investigating, confirm the exact charging-session ID, the customer's reported symptom/time and that your role permits session analysis. Check charger/connector identity and relevant timestamps, then review authorization, OCPP/meter evidence, subscription, billing and payment separately. Keep missing evidence explicit and avoid sending operational commands as part of diagnosis."
+  },
+  "sessions.stop-precheck": {
+    "screen": "charging-sessions",
+    "responseMode": "CHANGE_PRECHECK",
+    "answer": "Before remotely stopping a selected session, verify session/charger/connector identity, customer intent, current status and recent meter/OCPP evidence. Check that your role permits the operational action. This guidance does not send a stop command; after an authorized stop, verify the final charger event, billing and payment outcome separately."
+  }
+}

@@ -72,6 +72,10 @@ public class AiToolAuthorizationService {
     /** Client hints select presentation, never grant access to customer evidence. */
     public boolean isSupportAnalysisRequest(ContextPayload context, String message) {
         if (context == null) return false;
+        String intent = context.attributes() == null ? "" : context.attributes().getOrDefault("promptIntent", "");
+        if ("charging-sessions".equals(context.screen()) && intent != null && Set.of(
+                "sessions.overview", "sessions.stuck", "sessions.meter-cost", "sessions.authorization", "sessions.stop-precheck").contains(intent))
+            return true;
         String mode = context.attributes() == null ? "" : context.attributes().getOrDefault("responseMode", "");
         mode = mode == null ? "" : mode.trim().toUpperCase(Locale.ROOT);
         if (Set.of("ANALYSIS", "SESSION_ANALYSIS", "SESSION_INVESTIGATION").contains(mode)) return true;

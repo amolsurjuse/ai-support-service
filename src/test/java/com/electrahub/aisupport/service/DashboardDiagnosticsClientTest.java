@@ -119,6 +119,22 @@ class DashboardDiagnosticsClientTest {
         assertThat(report.gaps().toString()).contains("could not be checked", "first 25").doesNotContain("Country");
     }
 
+    @Test void catalogIntentOnlyReadsTheEvidenceNeededForThatQuestion() {
+        for (String intent : List.of("dashboard.revenue", "dashboard.billing-summary", "dashboard.success-rate", "dashboard.active-sessions")) {
+            requests.clear();
+            var report = client().collect(context(with("promptIntent", intent)), "Bearer current-operator", ADMIN);
+            assertThat(requests).hasSize(1);
+            String expected = intent.equals("dashboard.success-rate") ? "charging-success-rate"
+                    : intent.equals("dashboard.active-sessions") ? "admin/search" : "overview";
+            assertThat(requests.getFirst().path()).endsWith(expected);
+            if (intent.equals("dashboard.revenue")) assertThat(report.facts().toString()).contains("Recorded revenue: 123.45 EUR").doesNotContain("3 of 10", SESSION);
+            assertThat(report.gaps().toString()).doesNotContain("Charger health");
+        }
+        requests.clear();
+        client().collect(context(with("promptIntent", "dashboard.attention")), "Bearer current-operator", ADMIN);
+        assertThat(requests).hasSize(2).noneSatisfy(request -> assertThat(request.path()).endsWith("overview"));
+    }
+
     @Test void rejectsUnreadyInvalidOrConflictingFiltersWithoutAnyRequest() {
         for (Map<String, String> attributes : List.of(Map.<String, String>of(), with("filtersReady", "false"),
                 with("from", "2026-10-01"), with("from", "2027-10-01T00:00:00Z"),
