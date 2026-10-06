@@ -25,6 +25,12 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class DiagnosticAnswerServiceTest {
     private static final IdentityContext TRUSTED_ADMIN = new IdentityContext("tenant", "admin", Set.of("SYSTEM_ADMIN"), true);
 
+    @Test void supportSessionRenderingNeverClaimsBrowserContextWasChecked() {
+        var answer = new DiagnosticAnswerService.DiagnosticAnswer("diagnose_support_session",
+                "Session analysis is unavailable. No session failure cause is confirmed.", "charger SYNTHETIC | connector SYNTHETIC");
+        assertThat(service().renderForClient(answer)).isEqualTo(answer.text()).doesNotContain("I checked", "charger SYNTHETIC");
+    }
+
     @Test
     void everyApprovedEvaluationPromptHasADeterministicIntentMapping() throws Exception {
         String catalog = Files.readString(Path.of("scripts", "ollama", "sparky-prompt-evaluation.json"));

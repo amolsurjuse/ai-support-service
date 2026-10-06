@@ -71,9 +71,9 @@ public class SupportMcpClient {
         String outcome = "FAILURE";
         try {
             JsonNode result = exchange("tools/call", Map.of("name", tool, "arguments", arguments), identity, bearer, timeout);
-            if (result.path("isError").asBoolean(false) || !result.path("structuredContent").isObject()) {
-                throw new IllegalStateException("MCP tool returned unavailable evidence");
-            }
+            if (result.path("isError").asBoolean(false))
+                throw new EvidenceFailure(FailureReason.parse(result.path("structuredContent").path("reason").asText()));
+            if (!result.path("structuredContent").isObject()) throw new EvidenceFailure(FailureReason.UNAVAILABLE);
             outcome = "SUCCESS";
             return result.path("structuredContent");
         } finally {
@@ -128,7 +128,11 @@ public class SupportMcpClient {
             pending = http.sendAsync(request.build(), ignored -> new BoundedBody(MAX_BYTES));
             HttpResponse<byte[]> response = pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (response.statusCode() != (notification ? 202 : 200)) {
-                throw new IllegalStateException("MCP request failed with HTTP " + response.statusCode());
+                throw new EvidenceFailure(switch (response.statusCode()) {
+                    case 401, 403 -> FailureReason.ACCESS_DENIED;
+                    case 408, 504 -> FailureReason.TIMEOUT;
+                    default -> FailureReason.UNAVAILABLE;
+                });
             }
             if (!notification && !response.headers().firstValue("Content-Type").orElse("").startsWith("application/json")) {
                 throw new IllegalStateException("Unsupported MCP response content type");
@@ -137,11 +141,26 @@ public class SupportMcpClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("MCP request interrupted", e);
-        } catch (ExecutionException | TimeoutException e) {
-            throw new IllegalStateException("MCP transport unavailable", e);
+        } catch (TimeoutException e) {
+            throw new EvidenceFailure(FailureReason.TIMEOUT);
+        } catch (ExecutionException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause())
+                if (cause instanceof HttpTimeoutException) throw new EvidenceFailure(FailureReason.TIMEOUT);
+            throw new EvidenceFailure(FailureReason.UNAVAILABLE);
         } finally {
             if (pending != null && !pending.isDone()) pending.cancel(true);
         }
+    }
+
+    enum FailureReason {
+        TIMEOUT, ACCESS_DENIED, NOT_FOUND, UNAVAILABLE;
+        static FailureReason parse(String value) {
+            try { return valueOf(value); } catch (RuntimeException ex) { return UNAVAILABLE; }
+        }
+    }
+    static final class EvidenceFailure extends IllegalStateException {
+        final FailureReason reason;
+        EvidenceFailure(FailureReason reason) { super("Support evidence unavailable: " + reason); this.reason = reason; }
     }
 
     /** Enforces the cap during reception, before the HTTP client can buffer an unbounded body. */

@@ -416,7 +416,10 @@ public class DiagnosticAnswerService {
         if (answer == null) {
             return "";
         }
-        if (answer.contextSummary() == null || answer.contextSummary().isBlank()) {
+        // Selected-session prose already identifies what was actually verified. Browser
+        // context alone must never turn an unavailable lookup into "I checked charger".
+        if ("diagnose_support_session".equals(answer.toolName())
+                || answer.contextSummary() == null || answer.contextSummary().isBlank()) {
             return answer.text();
         }
         return "I checked " + answer.contextSummary() + ".\n\n" + answer.text();

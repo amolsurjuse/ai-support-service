@@ -35,7 +35,7 @@ public final class SupportSessionAnswerPresenter {
         if (!evidence.hasRecognizedFacts()) {
             return "Session analysis is unavailable. No session failure cause is confirmed."
                     + (sessionId == null ? "" : "\n\nSelected session: " + sessionId + ".")
-                    + "\n\nCheck your access to this session and retry. If the problem continues, review the session records with support; the available evidence is insufficient to explain what happened.";
+                    + "\n\n" + unavailableGuidance(snapshot);
         }
 
         String status = code(evidence.session.get("status"));
@@ -62,6 +62,17 @@ public final class SupportSessionAnswerPresenter {
             checks.stream().limit(5).forEach(check -> answer.append("- ").append(check).append('\n'));
         }
         return answer.toString().trim();
+    }
+
+    private static String unavailableGuidance(BackendDiagnosticsClient.DiagnosticsSnapshot snapshot) {
+        List<String> gaps = snapshot == null || snapshot.gaps() == null ? List.of() : snapshot.gaps();
+        if (gaps.stream().anyMatch(gap -> gap.startsWith("Session evidence lookup timed out.")))
+            return "The evidence lookup took too long to finish. Retry the analysis. This delay does not establish an access problem or a charging-session failure.";
+        if (gaps.stream().anyMatch(gap -> gap.startsWith("Session evidence access was denied.")))
+            return "The evidence service denied access. Refresh your sign-in and verify your permission to this session before retrying.";
+        if (gaps.stream().anyMatch(gap -> gap.startsWith("The selected session was not found by the authorized evidence service.")))
+            return "The selected session could not be found. Reopen the session and retry the analysis.";
+        return "The evidence service did not return enough verified information. Retry the analysis; if it remains unavailable, escalate the evidence retrieval issue to support.";
     }
 
     private static String assessment(String status) {

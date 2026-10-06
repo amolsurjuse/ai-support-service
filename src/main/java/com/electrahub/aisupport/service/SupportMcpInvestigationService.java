@@ -53,10 +53,11 @@ public class SupportMcpInvestigationService {
         catch (RuntimeException ex) { return gap("Select a valid charging session before running analysis."); }
         List<String> facts = new ArrayList<>(), gaps = new ArrayList<>(), references = new ArrayList<>();
         Map<String, String> selected = Map.of("sessionId", sessionId.toString());
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        JsonNode organization = null;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25);
         try {
             mcp.initialize(identity, bearer, remaining(deadline, 1500));
-            JsonNode report = mcp.call("get_session_evidence", selected, identity, bearer, remaining(deadline, 8500));
+            JsonNode report = mcp.call("get_session_evidence", selected, identity, bearer, remaining(deadline, 16000));
             // A mismatch/denial never falls back to a less restricted transport.
             if (!sessionId.toString().equalsIgnoreCase(report.path("sessionId").asText())
                     || !isTextArray(report.path("facts")) || !isTextArray(report.path("gaps"))) {
@@ -69,8 +70,19 @@ public class SupportMcpInvestigationService {
             facts.add("Evidence collected at " + collectedAt + " for selected session " + sessionId);
             report.path("facts").forEach(value -> facts.add(value.asText()));
             report.path("gaps").forEach(value -> gaps.add(value.asText()));
+            JsonNode candidate = report.path("organizationContext");
+            if (candidate.isObject() && sessionId.toString().equalsIgnoreCase(candidate.path("sessionId").asText())
+                    && collectedAt.toString().equals(candidate.path("collectedAt").asText())
+                    && identity.tenantId().equals(candidate.path("requesterTenantId").asText())) organization = candidate;
+        } catch (SupportMcpClient.EvidenceFailure ex) {
+            return gap(switch (ex.reason) {
+                case TIMEOUT -> "Session evidence lookup timed out. Retry the analysis; no session failure cause is confirmed.";
+                case ACCESS_DENIED -> "Session evidence access was denied. Refresh your sign-in and verify your access to this session.";
+                case NOT_FOUND -> "The selected session was not found by the authorized evidence service. Reopen the session and retry.";
+                case UNAVAILABLE -> "Session evidence service is unavailable. Retry the analysis; no session failure cause is confirmed.";
+            });
         } catch (RuntimeException ex) {
-            return gap("Private MCP session evidence is unavailable or access was denied. No failure cause is confirmed; retry the scoped investigation.");
+            return gap("Session evidence service is unavailable. Retry the analysis; no session failure cause is confirmed.");
         }
 
         // A model may select context categories. It can never supply resource IDs, routes, credentials or operations.
@@ -79,16 +91,23 @@ public class SupportMcpInvestigationService {
                 gaps.add("Context tool " + tool + " is disabled by tenant policy.");
                 continue;
             }
+            if ("get_org_context".equals(tool)) {
+                // Reuse this verified report only: repeating diagnosis doubles latency.
+                if (organization == null) gaps.add("Stored organization context was not included in the verified session evidence.");
+                else {
+                    String content = mapper.writeValueAsString(organization);
+                    if (content.length() <= 24000) references.add(tool + ": " + content);
+                    else gaps.add("Stored organization context exceeded the support context budget.");
+                }
+                continue;
+            }
             Map<String, String> args = switch (tool) {
                 case "get_org_context" -> selected;
                 case "get_flow_definition" -> Map.of("flowId", "charging-session");
                 default -> Map.of();
             };
             try {
-                // Organization reads revalidate the selected session through its evidence API.
-                // Give that scoped read the same service budget instead of the cache-only budget.
-                JsonNode data = mcp.call(tool, args, identity, bearer,
-                        remaining(deadline, "get_org_context".equals(tool) ? 7500 : 2500));
+                JsonNode data = mcp.call(tool, args, identity, bearer, remaining(deadline, 2500));
                 if ("get_org_context".equals(tool)
                         && !sessionId.toString().equalsIgnoreCase(data.path("sessionId").asText())) {
                     throw new IllegalStateException("Organization context does not match session");

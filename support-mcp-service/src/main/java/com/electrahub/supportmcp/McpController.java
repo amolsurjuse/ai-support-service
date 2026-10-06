@@ -66,7 +66,7 @@ public class McpController {
                 String outcome = "success";
                 try { result = tools.call(name, body.path("params").path("arguments"), identity); }
                 catch (SupportTools.InvalidArguments ex) { return ResponseEntity.ok(error(id, -32602, "Unknown tool or invalid arguments")); }
-                catch (GatewayEvidenceClient.EvidenceUnavailable ex) { result = SupportTools.unavailable(); outcome = "unavailable"; }
+                catch (GatewayEvidenceClient.EvidenceUnavailable ex) { result = SupportTools.unavailable(ex.reason); outcome = "unavailable"; }
                 metrics.counter("support.mcp.tool.calls", "tool", name, "outcome", outcome).increment();
                 LoggerFactory.getLogger(getClass()).info("Support MCP tool={} actorHash={} tenantHash={} outcome={}", name,
                         ContextMemory.digest(identity.userId()).substring(0, 16), ContextMemory.digest(identity.tenantId()).substring(0, 16), outcome);

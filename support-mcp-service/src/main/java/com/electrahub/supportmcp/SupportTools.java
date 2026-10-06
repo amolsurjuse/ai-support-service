@@ -58,7 +58,7 @@ public class SupportTools {
                 JsonNode report = evidence.session(id, identity);
                 if (!report.path("facts").isArray() || !report.path("gaps").isArray() || !report.path("collectedAt").isTextual())
                     throw new GatewayEvidenceClient.EvidenceUnavailable();
-                yield name.equals("get_org_context") ? organization(report, identity) : session(report);
+                yield name.equals("get_org_context") ? organization(report, identity) : session(report, identity);
             }
             default -> throw new InvalidArguments();
         };
@@ -68,10 +68,12 @@ public class SupportTools {
         return Map.of("content", List.of(Map.of("type", "text", "text", encoded)), "structuredContent", result, "isError", false);
     }
 
-    private Object session(JsonNode report) {
+    private Object session(JsonNode report, TrustedSupportIdentity.Identity identity) {
         var safe = mapper.createObjectNode();
         for (String key : List.of("sessionId", "collectedAt", "facts", "gaps")) safe.set(key, report.path(key));
         validateEvidenceStrings(report.path("facts")); validateEvidenceStrings(report.path("gaps"));
+        // Reuse only this authorized report. No cross-request customer evidence cache.
+        safe.set("organizationContext", mapper.valueToTree(organization(report, identity)));
         return safe;
     }
 
@@ -111,8 +113,12 @@ public class SupportTools {
                 "annotations", Map.of("readOnlyHint", true, "destructiveHint", false, "idempotentHint", true, "openWorldHint", false));
     }
     static Map<String, Object> unavailable() {
+        return unavailable(GatewayEvidenceClient.FailureReason.UNAVAILABLE);
+    }
+    static Map<String, Object> unavailable(GatewayEvidenceClient.FailureReason reason) {
         String message = "Authorized evidence is unavailable, incomplete, too large or access was denied. No cause is confirmed. Retry or escalate through scoped support.";
-        return Map.of("content", List.of(Map.of("type", "text", "text", message)), "isError", true);
+        return Map.of("content", List.of(Map.of("type", "text", "text", message)), "isError", true,
+                "structuredContent", Map.of("status", "UNAVAILABLE", "reason", reason.name()));
     }
     static class InvalidArguments extends RuntimeException {}
 }

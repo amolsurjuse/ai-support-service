@@ -37,7 +37,9 @@ class SupportMcpClientTest {
             }
             Object result = "initialize".equals(envelope.path("method").asText())
                     ? Map.of("protocolVersion", SupportMcpClient.PROTOCOL, "capabilities", Map.of("tools", Map.of()))
-                    : Map.of("isError", "tool-error".equals(failure), "content", List.of(), "structuredContent", Map.of("flowId", "charging-session"));
+                    : Map.of("isError", "tool-error".equals(failure) || (failure != null && failure.startsWith("reason-")), "content", List.of(),
+                            "structuredContent", failure != null && failure.startsWith("reason-")
+                                    ? Map.of("status", "UNAVAILABLE", "reason", failure.substring(7)) : Map.of("flowId", "charging-session"));
             byte[] body = mapper.writeValueAsBytes(Map.of("jsonrpc", "2.0", "id",
                     "wrong-id".equals(failure) ? "other" : envelope.path("id").asText(), "result", result));
             if ("oversize".equals(failure)) body = new byte[270000];
@@ -96,7 +98,19 @@ class SupportMcpClientTest {
         failure = "stalled";
         long started = System.nanoTime();
         assertThatThrownBy(() -> client.call("get_flow_definition", Map.of("flowId", "charging-session"), identity,
-                "Bearer agent-token", Duration.ofMillis(150))).isInstanceOf(IllegalStateException.class);
+                "Bearer agent-token", Duration.ofMillis(150))).isInstanceOfSatisfying(SupportMcpClient.EvidenceFailure.class,
+                        error -> assertThat(error.reason).isEqualTo(SupportMcpClient.FailureReason.TIMEOUT));
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(650));
+    }
+
+    @Test void onlyKnownFailureCategoriesCrossTheMcpBoundary() {
+        for (String reason : List.of("TIMEOUT", "ACCESS_DENIED", "NOT_FOUND", "UNAVAILABLE", "secret-raw-backend-error")) {
+            failure = "reason-" + reason;
+            assertThatThrownBy(() -> client.call("get_flow_definition", Map.of("flowId", "charging-session"), identity,
+                    "Bearer agent-token", Duration.ofSeconds(2)))
+                    .isInstanceOfSatisfying(SupportMcpClient.EvidenceFailure.class,
+                            error -> assertThat(error.reason).isEqualTo(SupportMcpClient.FailureReason.parse(reason)))
+                    .hasMessageNotContaining("secret-raw-backend-error");
+        }
     }
 }

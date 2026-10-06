@@ -108,8 +108,11 @@ class McpSecurityAndProtocolTest {
         String session = mvc.perform(signed(post("/mcp"), "SUPPORT").content(rpc("tools/call",
                         Map.of("name", "get_session_evidence", "arguments", Map.of("sessionId", SESSION.toString())))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.structuredContent.sessionId").value(SESSION.toString()))
+                .andExpect(jsonPath("$.result.structuredContent.organizationContext.sessionId").value(SESSION.toString()))
+                .andExpect(jsonPath("$.result.structuredContent.organizationContext.organizationContext.enterpriseId").value("enterprise-a"))
+                .andExpect(jsonPath("$.result.structuredContent.organizationContext.organizationContext.tenantId").doesNotExist())
                 .andExpect(jsonPath("$.result.isError").value(false)).andReturn().getResponse().getContentAsString();
-        assertThat(session).doesNotContain("unexpectedRawSecret", "must-not-escape", "organizationContext");
+        assertThat(session).doesNotContain("unexpectedRawSecret", "must-not-escape");
         mvc.perform(signed(post("/mcp"), "SUPPORT").content(rpc("tools/call",
                         Map.of("name", "get_org_context", "arguments", Map.of("sessionId", SESSION.toString())))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.structuredContent.sessionId").value(SESSION.toString()))

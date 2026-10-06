@@ -18,6 +18,43 @@ class GatewayTransportTest {
     final UUID session = UUID.fromString("12db94ed-258e-4569-842e-003395b74582");
     final TrustedSupportIdentity.Identity identity = new TrustedSupportIdentity.Identity("tenant-a", "support-a", Set.of("SUPPORT"), "Bearer original-customer-token");
 
+    @Test void validEvidenceSlowerThanSixSecondsIsNotDiscarded() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            try { Thread.sleep(6250); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            byte[] body = mapper.writeValueAsBytes(Map.of("sessionId", session.toString(), "facts", List.of("verified synthetic evidence")));
+            exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
+        server.start();
+        try {
+            var client = new GatewayEvidenceClient(mapper, "http://127.0.0.1:" + server.getAddress().getPort());
+            assertThat(client.session(session, identity).path("facts").get(0).asText()).isEqualTo("verified synthetic evidence");
+            assertThat(GatewayEvidenceClient.EVIDENCE_TIMEOUT).isGreaterThan(Duration.ofSeconds(12)).isLessThanOrEqualTo(Duration.ofSeconds(15));
+        } finally { server.stop(0); }
+    }
+
+    @Test void upstreamStatusesAreClassifiedWithoutLeakingResponseContent() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var status = new AtomicInteger(403);
+        server.createContext("/", exchange -> {
+            byte[] body = "sensitive upstream details".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status.get(), body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
+        server.start();
+        try {
+            var client = new GatewayEvidenceClient(mapper, "http://127.0.0.1:" + server.getAddress().getPort());
+            for (int code : List.of(401, 403, 404, 504, 500)) {
+                status.set(code);
+                var reason = code == 401 || code == 403 ? GatewayEvidenceClient.FailureReason.ACCESS_DENIED
+                        : code == 404 ? GatewayEvidenceClient.FailureReason.NOT_FOUND
+                        : code == 504 ? GatewayEvidenceClient.FailureReason.TIMEOUT : GatewayEvidenceClient.FailureReason.UNAVAILABLE;
+                assertThatThrownBy(() -> client.session(session, identity)).isInstanceOfSatisfying(GatewayEvidenceClient.EvidenceUnavailable.class,
+                        error -> assertThat(error.reason).isEqualTo(reason));
+                assertThat(mapper.writeValueAsString(SupportTools.unavailable(reason))).contains(reason.name()).doesNotContain("sensitive upstream details");
+            }
+        } finally { server.stop(0); }
+    }
+
     @Test void forwardsOnlyOriginalBearerToFixedGatewayAndValidatesSessionId() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicReference<String> path = new AtomicReference<>(), bearer = new AtomicReference<>();

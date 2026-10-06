@@ -33,7 +33,9 @@ class SupportMcpInvestigationServiceTest {
         when(mcp.call(eq("get_session_evidence"), eq(Map.of("sessionId", id)), eq(identity), eq("Bearer token"), any()))
                 .thenReturn(mapper.valueToTree(Map.of("sessionId", session, "collectedAt", collected.toString(),
                         "facts", List.of("Lifecycle assessment: start phase incomplete", "Payment authorization: 20 EUR"),
-                        "gaps", List.of("Capture not supplied"))));
+                        "gaps", List.of("Capture not supplied"),
+                        "organizationContext", Map.of("sessionId", session, "collectedAt", collected.toString(),
+                                "requesterTenantId", "tenant", "organizationContext", Map.of("locationId", "assigned-location")))));
     }
 
     @Test void roleAndPolicyDenialsNeverReachMcpOrModel() {
@@ -52,14 +54,12 @@ class SupportMcpInvestigationServiceTest {
         when(llm.available()).thenReturn(true);
         when(llm.complete(any())).thenReturn(LlmClient.LlmCompletion.success(
                 "{\"tools\":[\"get_org_context\"]}", "test", "test"));
-        when(mcp.call(eq("get_org_context"), anyMap(), eq(identity), eq("Bearer token"), any()))
-                .thenReturn(mapper.valueToTree(Map.of("sessionId", id, "organizationContext", Map.of("locationId", "assigned-location"))));
         when(mcp.call(eq("get_flow_definition"), anyMap(), eq(identity), eq("Bearer token"), any()))
                 .thenReturn(mapper.valueToTree(Map.of("flowId", "charging-session", "sourceRevision", "revision")));
         var report = service.collect("Why is this stuck? customer@example.com", context, "Bearer token", identity);
         assertThat(report.facts()).contains("Payment authorization: 20 EUR");
         assertThat(report.references().toString()).contains("assigned-location", "sourceRevision");
-        verify(mcp).call(eq("get_org_context"), eq(Map.of("sessionId", id)), eq(identity), eq("Bearer token"), any());
+        verify(mcp, never()).call(eq("get_org_context"), anyMap(), any(), anyString(), any());
         verify(mcp).call(eq("get_flow_definition"), eq(Map.of("flowId", "charging-session")), eq(identity), eq("Bearer token"), any());
         verify(mcp, never()).call(eq("get_service_topology"), anyMap(), any(), anyString(), any());
         var prompt = org.mockito.ArgumentCaptor.forClass(LlmClient.LlmPrompt.class);
@@ -83,7 +83,7 @@ class SupportMcpInvestigationServiceTest {
         evidence(id, Instant.now().minusSeconds(200));
         assertThat(service.collect("Diagnose", context, "Bearer token", identity).gaps().toString()).contains("stale");
         doThrow(new IllegalStateException("denied")).when(mcp).initialize(eq(identity), eq("Bearer token"), any());
-        assertThat(service.collect("Diagnose", context, "Bearer token", identity).gaps().toString()).contains("unavailable or access was denied");
+        assertThat(service.collect("Diagnose", context, "Bearer token", identity).gaps().toString()).contains("Session evidence service is unavailable");
         verifyNoInteractions(llm);
         verify(mcp, never()).call(eq("get_org_context"), anyMap(), any(), anyString(), any());
     }
@@ -99,11 +99,38 @@ class SupportMcpInvestigationServiceTest {
 
     @Test void wrongOrganizationContextIsNotIncorporated() {
         allow("admin.sessions.diagnose", "support.context.get_org_context"); evidence(id, Instant.now());
-        when(mcp.call(eq("get_org_context"), anyMap(), eq(identity), anyString(), any()))
-                .thenReturn(mapper.valueToTree(Map.of("sessionId", UUID.randomUUID().toString(), "locationId", "wrong-customer")));
+        when(mcp.call(eq("get_session_evidence"), anyMap(), eq(identity), anyString(), any()))
+                .thenReturn(mapper.valueToTree(Map.of("sessionId", id, "collectedAt", Instant.now().toString(),
+                        "facts", List.of("verified session fact"), "gaps", List.of(), "organizationContext",
+                        Map.of("sessionId", UUID.randomUUID().toString(), "locationId", "wrong-customer"))));
         var report = service.collect("Diagnose", context, "Bearer token", identity);
         assertThat(report.toInvestigationText()).doesNotContain("wrong-customer");
-        assertThat(report.gaps().toString()).contains("get_org_context was unavailable");
+        assertThat(report.gaps().toString()).contains("Stored organization context was not included");
+        verify(mcp, never()).call(eq("get_org_context"), anyMap(), any(), anyString(), any());
+    }
+
+    @Test void timeoutAndDeniedEvidenceRemainDistinctAndNeverReachPlanner() {
+        allow("*");
+        for (var reason : SupportMcpClient.FailureReason.values()) {
+            doThrow(new SupportMcpClient.EvidenceFailure(reason)).when(mcp)
+                    .call(eq("get_session_evidence"), anyMap(), eq(identity), anyString(), any());
+            var report = service.collect("Diagnose", context, "Bearer token", identity);
+            assertThat(report.facts()).isEmpty();
+            if (reason == SupportMcpClient.FailureReason.TIMEOUT)
+                assertThat(report.gaps().toString()).contains("timed out").doesNotContain("access was denied");
+            if (reason == SupportMcpClient.FailureReason.ACCESS_DENIED)
+                assertThat(report.gaps().toString()).contains("access was denied").doesNotContain("timed out");
+        }
+        verifyNoInteractions(llm);
+    }
+
+    @Test void evidenceBudgetOutlastsGatewayAndOrganizationIsNotReadTwice() {
+        allow("admin.sessions.diagnose", "support.context.get_org_context"); evidence(id, Instant.now());
+        service.collect("Diagnose", context, "Bearer token", identity);
+        var timeout = org.mockito.ArgumentCaptor.forClass(java.time.Duration.class);
+        verify(mcp).call(eq("get_session_evidence"), anyMap(), any(), anyString(), timeout.capture());
+        assertThat(timeout.getValue()).isEqualTo(java.time.Duration.ofSeconds(16));
+        verify(mcp, never()).call(eq("get_org_context"), anyMap(), any(), anyString(), any());
     }
 
     @Test void knowledgeModesNeverQueryWalletOrSessionEvenWithDiagnosisKeywords() {
