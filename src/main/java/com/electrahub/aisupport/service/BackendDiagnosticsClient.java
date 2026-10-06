@@ -51,9 +51,12 @@ public class BackendDiagnosticsClient {
     private final HttpClient httpClient;
     private final SupportSessionDiagnosticsClient supportSessions;
     private SupportMcpInvestigationService mcpInvestigations;
+    private DashboardDiagnosticsClient dashboardDiagnostics;
 
     @org.springframework.beans.factory.annotation.Autowired
     void setMcpInvestigations(SupportMcpInvestigationService investigations) { this.mcpInvestigations = investigations; }
+    @org.springframework.beans.factory.annotation.Autowired
+    void setDashboardDiagnostics(DashboardDiagnosticsClient diagnostics) { this.dashboardDiagnostics = diagnostics; }
     private final ExecutorService diagnosticsExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public BackendDiagnosticsClient(AiSupportProperties properties,
@@ -93,6 +96,20 @@ public class BackendDiagnosticsClient {
         toolAuthorization.requireAnalysisRequestAccess(identity, safeContext, userMessage);
         List<NamedDiagnosticTask> tasks = new ArrayList<>();
         Set<String> selectedDiagnostics = intentRouter.route(userMessage, safeContext);
+        if (selectedDiagnostics.contains(DiagnosticIntentRouter.DASHBOARD)) {
+            long started = System.nanoTime();
+            try {
+                DiagnosticsSnapshot snapshot = dashboardDiagnostics == null
+                        ? new DiagnosticsSnapshot(List.of(), List.of("Dashboard checks are unavailable. Refresh the dashboard and retry."))
+                        : dashboardDiagnostics.collect(safeContext, authorization, identity);
+                auditService.diagnosticCompleted(identity, DiagnosticIntentRouter.DASHBOARD, elapsedMs(started),
+                        !snapshot.hasFacts() ? "UNAVAILABLE" : snapshot.gaps().isEmpty() ? "SUCCESS" : "PARTIAL");
+                return snapshot;
+            } catch (RuntimeException failure) {
+                auditService.diagnosticCompleted(identity, DiagnosticIntentRouter.DASHBOARD, elapsedMs(started), "DENIED_OR_FAILED");
+                throw failure;
+            }
+        }
         if (selectedDiagnostics.contains(DiagnosticIntentRouter.SESSION_INVESTIGATION)) {
             toolAuthorization.requireSupportAnalysis(identity);
             if (mcpInvestigations != null && mcpInvestigations.enabled()) {

@@ -85,7 +85,10 @@ public class SupportMcpInvestigationService {
                 default -> Map.of();
             };
             try {
-                JsonNode data = mcp.call(tool, args, identity, bearer, remaining(deadline, 2500));
+                // Organization reads revalidate the selected session through its evidence API.
+                // Give that scoped read the same service budget instead of the cache-only budget.
+                JsonNode data = mcp.call(tool, args, identity, bearer,
+                        remaining(deadline, "get_org_context".equals(tool) ? 7500 : 2500));
                 if ("get_org_context".equals(tool)
                         && !sessionId.toString().equalsIgnoreCase(data.path("sessionId").asText())) {
                     throw new IllegalStateException("Organization context does not match session");

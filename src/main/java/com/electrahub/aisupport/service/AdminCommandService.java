@@ -42,7 +42,8 @@ public class AdminCommandService {
             return Optional.empty();
         }
         authorizationService.requireAudienceAccess(identity, context);
-        if (usesQuestionSpecificResponseMode(context) || DiagnosticIntentRouter.investigatesSession(message, context)) {
+        if (usesQuestionSpecificResponseMode(context) || DiagnosticIntentRouter.investigatesSession(message, context)
+                || DiagnosticIntentRouter.isDashboardLiveRequest(message, context)) {
             return Optional.empty();
         }
         Optional<DiagnosticAnswerService.DiagnosticAnswer> mutation = mutationService.answer(

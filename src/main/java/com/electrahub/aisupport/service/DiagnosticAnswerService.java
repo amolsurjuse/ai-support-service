@@ -10,7 +10,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
-import java.text.NumberFormat;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -155,7 +154,7 @@ public class DiagnosticAnswerService {
         BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics = collectDiagnostics(
                 message, safeContext, authorization, identity);
         DiagnosticAnswer fallback = deterministicAnswer(message, userMessage, safeContext, diagnostics, identity);
-        if (!llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
+        if (isDashboardSummary(fallback) || !llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
             onDelta.accept(fallback.text());
             return fallback;
         }
@@ -189,7 +188,7 @@ public class DiagnosticAnswerService {
             }
             return new DiagnosticAnswer(fallback.toolName(), completion.answer(), fallback.contextSummary());
         }
-        String finalAnswer = withInvestigationEvidence(evaluation.answer(), fallback);
+        String finalAnswer = evaluation.answer();
         if (!live) {
             onDelta.accept(finalAnswer);
         }
@@ -207,8 +206,9 @@ public class DiagnosticAnswerService {
         DiagnosticAnswer fallback;
         if (DiagnosticIntentRouter.investigatesSession(userMessage, safeContext)) {
             return new DiagnosticAnswer("diagnose_support_session",
-                    "Selected-session investigation. Findings below are read-only; no operational action was executed.\n\n"
-                            + diagnostics.toInvestigationText(), contextSummary(safeContext));
+                    SupportSessionAnswerPresenter.present(diagnostics, safeContext), contextSummary(safeContext));
+        } else if (DiagnosticIntentRouter.isDashboardLiveRequest(userMessage, safeContext)) {
+            return dashboardSummary(safeContext, diagnostics);
         } else if (isRevenueDashboardQuestion(message, safeContext)) {
             fallback = totalRevenueMetric(safeContext);
         } else if (isDashboardAttentionQuestion(message, safeContext)) {
@@ -336,7 +336,7 @@ public class DiagnosticAnswerService {
                                                  BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics,
                                                  DiagnosticAnswer fallback,
                                                  IdentityContext identity) {
-        if (!llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
+        if (isDashboardSummary(fallback) || !llmClient.available() || unavailableInvestigation(fallback, diagnostics)) {
             log.info("Sparky using deterministic fallback reason=llm_unavailable tool={} contextSummaryPresent={}",
                     fallback.toolName(), fallback.contextSummary() != null && !fallback.contextSummary().isBlank());
             return fallback;
@@ -362,12 +362,11 @@ public class DiagnosticAnswerService {
         }
         log.info("Sparky using LLM answer provider={} model={} tool={} answerChars={}",
                 completion.provider(), completion.model(), fallback.toolName(), evaluation.answer().length());
-        return new DiagnosticAnswer(fallback.toolName(), withInvestigationEvidence(evaluation.answer(), fallback), fallback.contextSummary());
+        return new DiagnosticAnswer(fallback.toolName(), evaluation.answer(), fallback.contextSummary());
     }
 
-    private static String withInvestigationEvidence(String summary, DiagnosticAnswer fallback) {
-        return "diagnose_support_session".equals(fallback.toolName())
-                ? summary + "\n\n" + fallback.text() : summary;
+    private static boolean isDashboardSummary(DiagnosticAnswer answer) {
+        return "summarize_dashboard".equals(answer.toolName());
     }
 
     private static boolean unavailableInvestigation(DiagnosticAnswer answer, BackendDiagnosticsClient.DiagnosticsSnapshot evidence) {
@@ -396,7 +395,7 @@ public class DiagnosticAnswerService {
             String message, ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot evidence) {
         if ("diagnose_support_session".equals(fallback.toolName())) {
             return SupportInvestigationAnswerRenderer.render(candidate, evidence)
-                    .map(SparkyAnswerQualityGuard.Evaluation::accepted)
+                    .map(nextCheck -> SparkyAnswerQualityGuard.Evaluation.accepted(fallback.text() + "\n\n" + nextCheck))
                     .orElseGet(() -> SparkyAnswerQualityGuard.Evaluation.rejected("invalid_support_evidence_selection"));
         }
         return qualityGuard.evaluate(candidate, fallback, message, context);
@@ -931,23 +930,6 @@ public class DiagnosticAnswerService {
     }
 
     private DiagnosticAnswer totalRevenueMetric(ContextPayload context) {
-        String revenue = contextAttribute(context, "totalRevenue");
-        if (!isBlank(revenue)) {
-            String currency = optionalContextAttribute(context, "currency", "USD");
-            String from = optionalContextAttribute(context, "from", "selected start");
-            String to = optionalContextAttribute(context, "to", "selected end");
-            String sessions = contextAttribute(context, "totalSessions");
-            String location = optionalContextAttribute(context, "filterLocationId", "all locations");
-            String formattedRevenue = formatMetric(revenue, 2);
-            String sessionLine = isBlank(sessions) ? "" : " It includes " + formatMetric(sessions, 0) + " completed session(s).";
-            return new DiagnosticAnswer(
-                    "explain_admin_total_revenue",
-                    "Total revenue for the current dashboard filter is " + currency + " " + formattedRevenue + ".\n\n"
-                            + "Period: " + from + " to " + to + ". Location filter: " + location + "." + sessionLine
-                            + "\n\nThis value comes from the live analytics response currently displayed on the dashboard.",
-                    "live dashboard analytics"
-            );
-        }
         return new DiagnosticAnswer(
                 "explain_admin_total_revenue",
                 """
@@ -959,28 +941,6 @@ public class DiagnosticAnswerService {
                         """.trim(),
                 contextSummary(context)
         );
-    }
-
-    private static String contextAttribute(ContextPayload context, String key) {
-        if (context == null || context.attributes() == null) return "";
-        String value = context.attributes().get(key);
-        return value == null ? "" : value.trim();
-    }
-
-    private static String optionalContextAttribute(ContextPayload context, String key, String fallback) {
-        String value = contextAttribute(context, key);
-        return isBlank(value) ? fallback : value;
-    }
-
-    private static String formatMetric(String value, int fractionDigits) {
-        try {
-            NumberFormat format = NumberFormat.getNumberInstance(Locale.US);
-            format.setMinimumFractionDigits(fractionDigits);
-            format.setMaximumFractionDigits(fractionDigits);
-            return format.format(Double.parseDouble(value));
-        } catch (NumberFormatException ignored) {
-            return value;
-        }
     }
 
     private DiagnosticAnswer alreadyActive(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
@@ -1045,6 +1005,22 @@ public class DiagnosticAnswerService {
                         """.trim(), diagnostics),
                 contextSummary(context)
         );
+    }
+
+    private DiagnosticAnswer dashboardSummary(ContextPayload context, BackendDiagnosticsClient.DiagnosticsSnapshot diagnostics) {
+        StringBuilder answer = new StringBuilder(diagnostics.hasFacts()
+                ? "Here is what the scoped dashboard checks show:\n\n"
+                : "I could not verify the current dashboard state. No specific incident is confirmed.\n\n");
+        diagnostics.facts().stream().limit(16).forEach(fact -> answer.append("- ").append(fact).append('\n'));
+        if (!diagnostics.gaps().isEmpty()) {
+            answer.append("\nChecks still needed:\n");
+            diagnostics.gaps().stream().limit(8).forEach(gap -> answer.append("- ").append(gap).append('\n'));
+        }
+        if (!diagnostics.hasFacts() && diagnostics.gaps().isEmpty()) {
+            answer.append("Refresh the dashboard so its current dates and organization filters can be used, then retry. ");
+            answer.append("Failed starts and offline or faulted chargers have not been checked.");
+        }
+        return new DiagnosticAnswer("summarize_dashboard", answer.toString().trim(), "scoped dashboard checks");
     }
 
     private DiagnosticAnswer adminScreenGuidance(String message, ContextPayload context) {

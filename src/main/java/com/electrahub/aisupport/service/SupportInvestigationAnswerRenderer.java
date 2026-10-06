@@ -38,11 +38,7 @@ final class SupportInvestigationAnswerRenderer {
                 if (!index.isIntegralNumber() || !index.canConvertToInt() || index.asInt() < 0
                         || index.asInt() >= evidence.facts().size() || !indexes.add(index.asInt())) return Optional.empty();
             }
-            StringBuilder answer = new StringBuilder("Key recorded findings:\n");
-            indexes.forEach(index -> answer.append("- ").append(evidence.facts().get(index)).append('\n'));
-            answer.append("\nNext read-only check: ").append(NEXT_CHECKS.get(root.path("nextCheck").asText()));
-            if (!evidence.gaps().isEmpty()) answer.append("\nSome evidence checks are unavailable; review the gaps in the report below.");
-            return Optional.of(answer.toString());
+            return Optional.of("Suggested next check: " + NEXT_CHECKS.get(root.path("nextCheck").asText()));
         } catch (RuntimeException ex) { return Optional.empty(); }
     }
 }

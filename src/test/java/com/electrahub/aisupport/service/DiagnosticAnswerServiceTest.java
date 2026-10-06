@@ -202,7 +202,7 @@ class DiagnosticAnswerServiceTest {
     void explainsTotalRevenueDashboardMetric() {
         DiagnosticAnswerService service = service();
         ContextPayload context = new ContextPayload(
-                "dashboard", "dashboard", null, null, null, null, null, "admin");
+                "dashboard", "dashboard", null, null, null, null, null, "admin", Map.of("responseMode", "KNOWLEDGE"));
 
         String answer = service.renderForClient(service.answer(
                 "Total revenue",
@@ -216,8 +216,10 @@ class DiagnosticAnswerServiceTest {
     }
 
     @Test
-    void reportsExactRevenueFromLiveDashboardContext() {
-        DiagnosticAnswerService service = service();
+    void usesServerDashboardEvidenceAndNeverTreatsClientTotalsAsVerified() {
+        DiagnosticAnswerService service = serviceWithDiagnostics(new BackendDiagnosticsClient.DiagnosticsSnapshot(
+                List.of("Completed charging revenue: USD 125.00 from 4 sessions in the selected period."),
+                List.of("Charger health was not checked.")));
         ContextPayload context = new ContextPayload(
                 "dashboard", "analytics", null, null, null, null, null, "admin",
                 Map.of(
@@ -231,10 +233,8 @@ class DiagnosticAnswerServiceTest {
 
         String answer = service.renderForClient(service.answer("What is total revenue?", context, "Bearer token", TRUSTED_ADMIN));
 
-        assertThat(answer).contains("USD 72,127.03");
-        assertThat(answer).contains("1,721 completed session(s)");
-        assertThat(answer).contains("live analytics response");
-        assertThat(answer).doesNotContain("Admin should verify");
+        assertThat(answer).contains("USD 125.00", "4 sessions", "Charger health was not checked");
+        assertThat(answer).doesNotContain("72,127.03", "72127.03", "1,721", "1721");
     }
 
     @Test
@@ -603,7 +603,7 @@ class DiagnosticAnswerServiceTest {
         ContextPayload notifications = new ContextPayload("notifications", "notification", null, null, null, null, null, "admin");
 
         assertThat(service.answer("What needs attention on this dashboard?", dashboard, "Bearer token", TRUSTED_ADMIN).text())
-                .contains("failed starts", "offline or faulted chargers");
+                .contains("No specific incident is confirmed", "current dates and organization filters");
         assertThat(service.answer("What should I monitor for charging success?", dashboard, "Bearer token", TRUSTED_ADMIN).text())
                 .contains("eligible charging attempts", "Manual driver cancellations");
         assertThat(service.answer("What should I check before remotely stopping an active session?", sessions, "Bearer token", TRUSTED_ADMIN).text())

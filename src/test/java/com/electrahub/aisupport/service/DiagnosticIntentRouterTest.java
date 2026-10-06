@@ -47,6 +47,20 @@ class DiagnosticIntentRouterTest {
     }
 
     @Test
+    void dashboardAttentionRoutesToScopedDashboardChecksInsteadOfNoDiagnostics() {
+        var dashboard = new ContextPayload("dashboard", "dashboard", null, null, null, null, null, "admin");
+        for (String question : java.util.List.of("What needs attention right now?", "Which chargers are offline or faulted?",
+                "Which sessions are stuck, idle, or unsettled?", "What is the charging success rate for this period?")) {
+            assertThat(router.route(question, dashboard)).containsExactly(DiagnosticIntentRouter.DASHBOARD);
+        }
+        assertThat(router.route("What needs attention right now?", context("driver")))
+                .doesNotContain(DiagnosticIntentRouter.DASHBOARD);
+        var knowledge = new ContextPayload("dashboard", "dashboard", null, null, null, null, null, "admin",
+                java.util.Map.of("responseMode", "KNOWLEDGE"));
+        assertThat(router.route("Explain total revenue", knowledge)).isEmpty();
+    }
+
+    @Test
     void routesRawOcppHistoryOnlyForAdministrativeAudience() {
         assertThat(router.route("Show recent OCPP actions", context("driver")))
                 .doesNotContain(DiagnosticIntentRouter.OCPP_HISTORY);

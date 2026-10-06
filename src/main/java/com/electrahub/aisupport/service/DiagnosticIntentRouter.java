@@ -15,6 +15,7 @@ public class DiagnosticIntentRouter {
     public static final String OCPP_CONNECTION = "ocpp connection";
     public static final String OCPP_HISTORY = "ocpp history";
     public static final String SESSION_INVESTIGATION = "session investigation";
+    public static final String DASHBOARD = "dashboard summary";
 
     public Set<String> route(String userMessage, ContextPayload context) {
         String responseMode = context == null || context.attributes() == null ? null : context.attributes().get("responseMode");
@@ -26,6 +27,7 @@ public class DiagnosticIntentRouter {
             return Set.of();
         }
         if (investigatesSession(userMessage, context)) return Set.of(SESSION_INVESTIGATION);
+        if (isDashboardLiveRequest(userMessage, context)) return Set.of(DASHBOARD);
 
         LinkedHashSet<String> diagnostics = new LinkedHashSet<>();
         boolean receiptOrCost = containsAny(message,
@@ -62,6 +64,16 @@ public class DiagnosticIntentRouter {
 
     private static boolean hasRequestedSession(ContextPayload context) {
         return context != null && context.sessionId() != null && !context.sessionId().isBlank();
+    }
+
+    static boolean isDashboardLiveRequest(String message, ContextPayload context) {
+        if (context == null || !"dashboard".equalsIgnoreCase(context.screen()) || !isAdministrativeAudience(context)) return false;
+        String mode = context.attributes() == null ? "" : context.attributes().getOrDefault("responseMode", "");
+        if ("KNOWLEDGE".equalsIgnoreCase(mode) || "CHANGE_PRECHECK".equalsIgnoreCase(mode)) return false;
+        if ("LIVE_SUMMARY".equalsIgnoreCase(mode)) return true;
+        String question = normalize(message);
+        return containsAny(question, "needs attention", "attention on this dashboard", "right now", "offline", "faulted",
+                "stuck", "unsettled", "which sessions", "total revenue", "success rate for", "success rate this");
     }
 
     static boolean investigatesSession(String message, ContextPayload context) {

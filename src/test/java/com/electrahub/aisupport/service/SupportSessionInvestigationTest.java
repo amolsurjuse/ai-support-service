@@ -12,9 +12,11 @@ import static org.mockito.Mockito.*;
 
 class SupportSessionInvestigationTest {
     @Test
-    void bothChatModesPreserveCompleteEvidenceAfterModelSummaryAndDuringOutage() {
+    void bothChatModesKeepEvidenceInternalAndRemainUsefulDuringModelOutage() {
+        var facts = new ArrayList<>(IntStream.range(0, 65).mapToObj(i -> "Session event " + i).toList());
+        facts.add(0, "Session c3a62c5e-20f1-4d04-9209-55f3d63a59da: status=ACTIVE; startedAt=unavailable; stoppedAt=unavailable");
         var diagnostics = new BackendDiagnosticsClient.DiagnosticsSnapshot(
-                IntStream.range(0, 65).mapToObj(i -> "Session event " + i).toList(), List.of("Payment hold unavailable"));
+                facts, List.of("Payment hold unavailable"), List.of("get_service_topology: {\"resources\":[\"internal\"]}"));
         var backend = mock(BackendDiagnosticsClient.class);
         when(backend.collect(anyString(), any(), anyString(), any())).thenReturn(diagnostics);
         var llm = mock(LlmClient.class);
@@ -23,14 +25,18 @@ class SupportSessionInvestigationTest {
         when(llm.available()).thenReturn(true);
         when(llm.complete(any())).thenReturn(LlmClient.LlmCompletion.success(
                 "The session payment hold is unavailable. Check the recorded charging events before making a diagnosis.", "test", "test"));
-        assertThat(service.answer("Diagnose", context("support", "SELECTED_RECORD"), "Bearer token", identity).text())
-                .contains("Session event 64", "Payment hold unavailable");
-        StringBuilder output = new StringBuilder();
-        service.answerStreaming("Diagnose", context("support", "SELECTED_RECORD"), "Bearer token", identity, output::append);
-        assertThat(output.toString()).contains("Session event 64", "Payment hold unavailable");
-        when(llm.available()).thenReturn(false);
-        assertThat(service.answer("Diagnose", context("support", "SELECTED_RECORD"), "Bearer token", identity).text())
-                .contains("Session event 64", "Payment hold unavailable");
+        try {
+            String answer = service.answer("Diagnose", context("support", "SELECTED_RECORD"), "Bearer token", identity).text();
+            assertThat(answer).contains("recorded as active", "authorization amount unavailable")
+                    .doesNotContain("Session event 64", "get_service_topology", "\"resources\"");
+            verify(llm).complete(argThat(prompt -> prompt.diagnostics().facts().contains("Session event 64")));
+            StringBuilder output = new StringBuilder();
+            service.answerStreaming("Diagnose", context("support", "SELECTED_RECORD"), "Bearer token", identity, output::append);
+            assertThat(output.toString()).isEqualTo(answer);
+            when(llm.available()).thenReturn(false);
+            assertThat(service.answer("Diagnose", context("support", "SELECTED_RECORD"), "Bearer token", identity).text())
+                    .isEqualTo(answer);
+        } finally { service.closeSupportSynthesis(); }
     }
     @Test
     void selectedSupportInvestigationNeverUsesAgentWalletOrDriverSessionApis() {
